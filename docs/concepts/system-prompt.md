@@ -181,8 +181,11 @@ prompt surface that matches their lifetime:
 On the native Codex harness, OpenClaw avoids repeating stable workspace files
 in every user turn. Codex loads `AGENTS.md` through its own project-doc
 discovery. `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, and `USER.md` are forwarded as
-Codex developer instructions. `HEARTBEAT.md` content is not injected; heartbeat
-turns get a collaboration-mode note pointing to the file when it exists and is
+turn-scoped collaboration-mode developer instructions for the parent turn.
+`TOOLS.md` is also sent through Codex native subagent usage-hint config so
+native Codex subagents keep the workspace tool/runtime context without adding a
+second parent-turn copy. `HEARTBEAT.md` content is not injected; heartbeat turns
+get a collaboration-mode note pointing to the file when it exists and is
 non-empty. `MEMORY.md` and active `BOOTSTRAP.md` content keep the normal
 turn-context role for now.
 
@@ -215,8 +218,8 @@ memory directly. If `MEMORY.md` is repeatedly truncated, distill it into a
 shorter durable summary and move detailed history into `memory/*.md`, or
 intentionally raise the bootstrap limits.
 
-Sub-agent sessions only inject `AGENTS.md` and `TOOLS.md` (other bootstrap files
-are filtered out to keep the sub-agent context small).
+Sub-agent sessions only receive `AGENTS.md` and `TOOLS.md` from the bootstrap
+set. Other bootstrap files are filtered out to keep the sub-agent context small.
 
 Internal hooks can intercept this step via `agent:bootstrap` to mutate or replace
 the injected bootstrap files (for example swapping `SOUL.md` for an alternate persona).

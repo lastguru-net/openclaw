@@ -5767,7 +5767,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(inputText).toContain("make the default webpage openclaw");
   });
 
-  it("passes stable workspace files as Codex developer instructions and keeps MEMORY.md as turn context", async () => {
+  it("keeps TOOLS.md turn-scoped for parent turns and available to native subagents", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const agentsGuidance = "Follow AGENTS guidance.";
@@ -5795,21 +5795,32 @@ describe("runCodexAppServerAttempt", () => {
 
     const threadStart = harness.requests.find((request) => request.method === "thread/start");
     const threadStartParams = threadStart?.params as {
-      config?: { instructions?: string };
+      config?: Record<string, unknown>;
       developerInstructions?: string;
     };
     const config = threadStartParams.config;
 
-    expect(threadStartParams.developerInstructions).toContain("OpenClaw Workspace Instructions");
+    expect(threadStartParams.developerInstructions).not.toContain(
+      "OpenClaw Workspace Instructions",
+    );
     expect(threadStartParams.developerInstructions).not.toContain(soulGuidance);
     expect(threadStartParams.developerInstructions).not.toContain(identityGuidance);
-    expect(threadStartParams.developerInstructions).toContain(toolGuidance);
+    expect(threadStartParams.developerInstructions).not.toContain(toolGuidance);
     expect(threadStartParams.developerInstructions).not.toContain(userProfile);
     expect(threadStartParams.developerInstructions).not.toContain(heartbeatChecklist);
     expect(threadStartParams.developerInstructions).not.toContain(memorySummary);
     expect(threadStartParams.developerInstructions).not.toContain("Codex loads AGENTS.md natively");
     expect(threadStartParams.developerInstructions).not.toContain(agentsGuidance);
     expect(config?.instructions).toBeUndefined();
+    expect(config?.["features.multi_agent_v2.usage_hint_enabled"]).toBe(true);
+    expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).toContain(toolGuidance);
+    expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).not.toContain(
+      soulGuidance,
+    );
+    expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).not.toContain(
+      identityGuidance,
+    );
+    expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).not.toContain(userProfile);
 
     const turnStart = harness.requests.find((request) => request.method === "turn/start");
     const turnStartParams = turnStart?.params as {
@@ -5825,10 +5836,11 @@ describe("runCodexAppServerAttempt", () => {
     expect(collaborationInstructions).toContain("OpenClaw Workspace Instructions");
     expect(collaborationInstructions).toContain(soulGuidance);
     expect(collaborationInstructions).toContain(identityGuidance);
-    expect(collaborationInstructions).not.toContain(toolGuidance);
+    expect(collaborationInstructions).toContain(toolGuidance);
     expect(collaborationInstructions).toContain(userProfile);
     expect(collaborationInstructions).not.toContain(heartbeatChecklist);
     expect(collaborationInstructions).not.toContain(memorySummary);
+    expect((collaborationInstructions.match(new RegExp(toolGuidance, "g")) ?? []).length).toBe(1);
     const inputText = turnStartParams.input?.[0]?.text ?? "";
     expect(inputText).toContain("OpenClaw runtime context for this turn:");
     expect(inputText).not.toContain("does not override Codex system/developer instructions");

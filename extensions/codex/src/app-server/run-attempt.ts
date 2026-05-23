@@ -226,10 +226,11 @@ const CODEX_NATIVE_SANDBOX_TOOL_REQUIREMENTS = [
 ] as const;
 const CODEX_MEMORY_FLUSH_DYNAMIC_TOOL_ALLOW = new Set(["read", "write"]);
 const CODEX_NATIVE_PROJECT_DOC_BASENAMES = new Set(["agents.md"]);
-const CODEX_INHERITED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set(["tools.md"]);
+const CODEX_INHERITED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set<string>();
 const CODEX_TURN_SCOPED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set([
   "identity.md",
   "soul.md",
+  "tools.md",
   "user.md",
 ]);
 const CODEX_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set([
@@ -263,10 +264,12 @@ type CodexWorkspaceBootstrapContext = CodexBootstrapContext & {
   promptContextFiles?: EmbeddedContextFile[];
   developerInstructionFiles?: EmbeddedContextFile[];
   turnScopedDeveloperInstructionFiles?: EmbeddedContextFile[];
+  nativeSubagentDeveloperInstructionFiles?: EmbeddedContextFile[];
   heartbeatReferenceFiles?: EmbeddedContextFile[];
   promptContext?: string;
   developerInstructions?: string;
   turnScopedDeveloperInstructions?: string;
+  nativeSubagentDeveloperInstructions?: string;
   heartbeatCollaborationInstructions?: string;
 };
 
@@ -1270,6 +1273,13 @@ export async function runCodexAppServerAttempt(
       : options.nativeHookRelay?.enabled === false
         ? buildCodexNativeHookRelayDisabledConfig()
         : undefined;
+    const nativeSubagentUsageHintConfig = buildCodexNativeSubagentUsageHintConfig(
+      workspaceBootstrapContext.nativeSubagentDeveloperInstructions,
+    );
+    const finalThreadConfigPatch = mergeCodexThreadConfigs(
+      nativeSubagentUsageHintConfig,
+      nativeHookRelayConfig,
+    );
     const threadConfig = mergeCodexThreadConfigs(
       bundleMcpThreadConfig?.configPatch as JsonObject | undefined,
     );
@@ -1415,7 +1425,7 @@ export async function runCodexAppServerAttempt(
               appServer: pluginAppServer,
               developerInstructions: promptBuild.developerInstructions,
               config: threadConfig,
-              finalConfigPatch: nativeHookRelayConfig,
+              finalConfigPatch: finalThreadConfigPatch,
               nativeCodeModeEnabled: nativeToolSurfaceEnabled,
               nativeCodeModeOnlyEnabled: appServer.codeModeOnly,
               userMcpServersEnabled: nativeToolSurfaceEnabled,
@@ -4762,6 +4772,11 @@ async function buildCodexWorkspaceBootstrapContext(params: {
     )
       ? selectCodexWorkspaceTurnScopedDeveloperInstructionFiles(contextFiles)
       : [];
+    const nativeSubagentDeveloperInstructionFiles = shouldInjectCodexOpenClawPromptContext(
+      params.params,
+    )
+      ? selectCodexWorkspaceNativeSubagentDeveloperInstructionFiles(contextFiles)
+      : [];
     const heartbeatReferenceFiles = selectCodexWorkspaceHeartbeatReferenceFiles(contextFiles);
     return {
       ...bootstrapContext,
@@ -4769,11 +4784,15 @@ async function buildCodexWorkspaceBootstrapContext(params: {
       promptContextFiles,
       developerInstructionFiles,
       turnScopedDeveloperInstructionFiles,
+      nativeSubagentDeveloperInstructionFiles,
       heartbeatReferenceFiles,
       promptContext: renderCodexWorkspaceBootstrapPromptContext(promptContextFiles),
       developerInstructions: renderCodexWorkspaceDeveloperInstructions(developerInstructionFiles),
       turnScopedDeveloperInstructions: renderCodexWorkspaceDeveloperInstructions(
         turnScopedDeveloperInstructionFiles,
+      ),
+      nativeSubagentDeveloperInstructions: renderCodexWorkspaceDeveloperInstructions(
+        nativeSubagentDeveloperInstructionFiles,
       ),
       heartbeatCollaborationInstructions:
         renderCodexWorkspaceHeartbeatReference(heartbeatReferenceFiles),
@@ -4823,6 +4842,7 @@ function buildCodexSystemPromptReport(params: {
       developerInstructionFiles: [
         ...(params.workspaceBootstrapContext.developerInstructionFiles ?? []),
         ...(params.workspaceBootstrapContext.turnScopedDeveloperInstructionFiles ?? []),
+        ...(params.workspaceBootstrapContext.nativeSubagentDeveloperInstructionFiles ?? []),
       ],
     }),
     skills: {
@@ -5031,7 +5051,7 @@ function renderCodexWorkspaceBootstrapPromptContext(
     return undefined;
   }
   const lines = [
-    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. TOOLS.md is provided as inherited Codex developer instructions. SOUL.md, IDENTITY.md, and USER.md are provided as turn-scoped collaboration instructions so native Codex subagents do not inherit them. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. Those files are not repeated here.",
+    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, USER.md, and TOOLS.md are provided as turn-scoped collaboration instructions for this parent turn. TOOLS.md is also provided through Codex native subagent usage-hint config so native subagents keep the same tool/runtime context without duplicating it in the parent turn. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. Those files are not repeated here.",
     "",
     "# Project Context",
     "",
@@ -5079,6 +5099,12 @@ function selectCodexWorkspaceTurnScopedDeveloperInstructionFiles(
   );
 }
 
+function selectCodexWorkspaceNativeSubagentDeveloperInstructionFiles(
+  contextFiles: EmbeddedContextFile[],
+): EmbeddedContextFile[] {
+  return selectCodexWorkspaceDeveloperInstructionFiles(contextFiles, new Set(["tools.md"]));
+}
+
 function selectCodexWorkspaceDeveloperInstructionFiles(
   contextFiles: EmbeddedContextFile[],
   basenames: ReadonlySet<string>,
@@ -5112,6 +5138,19 @@ function renderCodexWorkspaceDeveloperInstructions(
     lines.push(`### ${file.path}`, "", file.content, "");
   }
   return lines.join("\n").trim();
+}
+
+function buildCodexNativeSubagentUsageHintConfig(
+  developerInstructions: string | undefined,
+): JsonObject | undefined {
+  const instructions = developerInstructions?.trim();
+  if (!instructions) {
+    return undefined;
+  }
+  return {
+    "features.multi_agent_v2.usage_hint_enabled": true,
+    "features.multi_agent_v2.subagent_usage_hint_text": instructions,
+  };
 }
 
 function selectCodexWorkspaceHeartbeatReferenceFiles(
