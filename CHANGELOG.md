@@ -12,7 +12,6 @@ Docs: https://docs.openclaw.ai
 - Packaging: exclude documentation images and assets from the npm tarball, reducing published package size without affecting runtime docs search or CLI behavior. Thanks @SebTardif.
 - Agents/subagents: limit default sub-agent bootstrap context to `AGENTS.md` and `TOOLS.md`, keeping persona, identity, user, memory, heartbeat, and setup files out of delegated workers by default. (#85283) Thanks @100yenadmin.
 - Codex/subagents: keep Codex-native subagents aligned with the same bootstrap boundary by giving parent turns `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md` as turn-scoped collaboration instructions in workspace order, while retaining a child-only inherited `TOOLS.md` block for native Codex subagents.
-- Codex/context: keep `MEMORY.md` out of every turn prompt and expose it as an on-demand reference instead, preserving retrieval access without duplicating the memory summary in each request.
 - Maintainer skills: exclude plugin SDK/API boundary work from `openclaw-landable-bug-sweep` so bugbash sweeps stay focused on small paper-cut fixes.
 - Plugin SDK: add a generic channel-message poll sender so channel plugins can expose poll delivery without depending on channel-specific SDK facades.
 - Crabbox: keep the local wrapper's provider validation synced with the installed Crabbox binary while preserving supported aliases such as `docker` and `blacksmith`. (#85302) Thanks @hxy91819.

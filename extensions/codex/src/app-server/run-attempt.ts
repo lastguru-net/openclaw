@@ -238,7 +238,6 @@ const CODEX_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set([
   ...CODEX_TURN_SCOPED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES,
 ]);
 const CODEX_HEARTBEAT_CONTEXT_BASENAME = "heartbeat.md";
-const CODEX_MEMORY_CONTEXT_BASENAME = "memory.md";
 const CODEX_NATIVE_HOOK_RELAY_EVENTS_WITH_APP_SERVER_APPROVALS =
   CODEX_NATIVE_HOOK_RELAY_EVENTS.filter((event) => event !== "permission_request");
 const CODEX_BOOTSTRAP_CONTEXT_ORDER = new Map<string, number>([
@@ -4772,7 +4771,7 @@ async function buildCodexWorkspaceBootstrapContext(params: {
       developerInstructionFiles,
       turnScopedDeveloperInstructionFiles,
       heartbeatReferenceFiles,
-      promptContext: renderCodexWorkspaceBootstrapPromptContext(contextFiles),
+      promptContext: renderCodexWorkspaceBootstrapPromptContext(promptContextFiles),
       developerInstructions: renderCodexWorkspaceDeveloperInstructions(developerInstructionFiles, {
         inheritedForCodexNativeSubagents: true,
       }),
@@ -4915,10 +4914,7 @@ function buildCodexBootstrapInjectionStats(params: {
       if (CODEX_NATIVE_PROJECT_DOC_BASENAMES.has(baseName)) {
         injectedChars = rawChars;
         truncated = false;
-      } else if (
-        baseName === CODEX_HEARTBEAT_CONTEXT_BASENAME ||
-        baseName === CODEX_MEMORY_CONTEXT_BASENAME
-      ) {
+      } else if (baseName === CODEX_HEARTBEAT_CONTEXT_BASENAME) {
         injectedChars = 0;
         truncated = false;
       }
@@ -5034,29 +5030,17 @@ function renderCodexWorkspaceBootstrapPromptContext(
   contextFiles: EmbeddedContextFile[],
 ): string | undefined {
   const files = selectCodexWorkspacePromptContextFiles(contextFiles);
-  const memoryReferences = selectCodexWorkspaceMemoryReferenceFiles(contextFiles);
-  if (files.length === 0 && memoryReferences.length === 0) {
+  if (files.length === 0) {
     return undefined;
   }
   const lines = [
-    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, USER.md, and TOOLS.md are provided as turn-scoped collaboration instructions for parent turns. TOOLS.md is also kept in an inherited Codex-native-subagent-only developer block so native Codex subagents receive the expected delegated-worker tool context. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. MEMORY.md is available for explicit retrieval when needed but is not repeated in every turn context. Those files are not repeated here.",
+    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, USER.md, and TOOLS.md are provided as turn-scoped collaboration instructions for parent turns. TOOLS.md is also kept in an inherited Codex-native-subagent-only developer block so native Codex subagents receive the expected delegated-worker tool context. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. Those files are not repeated here.",
     "",
+    "# Project Context",
+    "",
+    "The following project context files have been loaded:",
   ];
-  if (memoryReferences.length > 0) {
-    lines.push("Memory context available on demand:");
-    for (const file of memoryReferences) {
-      lines.push(`- ${file.path}`);
-    }
-    lines.push("");
-  }
-  if (files.length > 0) {
-    lines.push(
-      "# Project Context",
-      "",
-      "The following project context files have been loaded:",
-      "",
-    );
-  }
+  lines.push("");
   for (const file of files) {
     lines.push(`## ${file.path}`, "", file.content, "");
   }
@@ -5074,23 +5058,7 @@ function selectCodexWorkspacePromptContextFiles(
         !CODEX_NATIVE_PROJECT_DOC_BASENAMES.has(baseName) &&
         !CODEX_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES.has(baseName) &&
         baseName !== CODEX_HEARTBEAT_CONTEXT_BASENAME &&
-        baseName !== CODEX_MEMORY_CONTEXT_BASENAME &&
         !isMissingCodexBootstrapContextFile(file)
-      );
-    })
-    .toSorted(compareCodexContextFiles);
-}
-
-function selectCodexWorkspaceMemoryReferenceFiles(
-  contextFiles: EmbeddedContextFile[],
-): EmbeddedContextFile[] {
-  return contextFiles
-    .filter((file) => {
-      const baseName = getCodexContextFileBasename(file.path);
-      return (
-        baseName === CODEX_MEMORY_CONTEXT_BASENAME &&
-        !isMissingCodexBootstrapContextFile(file) &&
-        file.content.trim().length > 0
       );
     })
     .toSorted(compareCodexContextFiles);
