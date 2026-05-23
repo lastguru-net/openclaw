@@ -5812,6 +5812,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(threadStartParams.developerInstructions).not.toContain("Codex loads AGENTS.md natively");
     expect(threadStartParams.developerInstructions).not.toContain(agentsGuidance);
     expect(config?.instructions).toBeUndefined();
+    expect(config?.["features.multi_agent_v2.enabled"]).toBe(true);
     expect(config?.["features.multi_agent_v2.usage_hint_enabled"]).toBe(true);
     expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).toContain(toolGuidance);
     expect(config?.["features.multi_agent_v2.subagent_usage_hint_text"]).not.toContain(

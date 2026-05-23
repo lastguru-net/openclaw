@@ -182,7 +182,7 @@ On the native Codex harness, OpenClaw avoids repeating stable workspace files
 in every user turn. Codex loads `AGENTS.md` through its own project-doc
 discovery. `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, and `USER.md` are forwarded as
 turn-scoped collaboration-mode developer instructions for the parent turn.
-`TOOLS.md` is also sent through Codex native subagent usage-hint config so
+`TOOLS.md` is also sent through enabled Codex native multi-agent usage-hint config so
 native Codex subagents keep the workspace tool/runtime context without adding a
 second parent-turn copy. `HEARTBEAT.md` content is not injected; heartbeat turns
 get a collaboration-mode note pointing to the file when it exists and is

@@ -5148,6 +5148,7 @@ function buildCodexNativeSubagentUsageHintConfig(
     return undefined;
   }
   return {
+    "features.multi_agent_v2.enabled": true,
     "features.multi_agent_v2.usage_hint_enabled": true,
     "features.multi_agent_v2.subagent_usage_hint_text": instructions,
   };
