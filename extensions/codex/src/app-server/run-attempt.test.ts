@@ -5767,7 +5767,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(inputText).toContain("make the default webpage openclaw");
   });
 
-  it("passes stable workspace files as Codex developer instructions and keeps MEMORY.md as turn context", async () => {
+  it("passes stable workspace files as Codex developer instructions and references MEMORY.md without injecting its content", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const agentsGuidance = "Follow AGENTS guidance.";
@@ -5852,7 +5852,10 @@ describe("runCodexAppServerAttempt", () => {
     expect(inputText).not.toContain(toolGuidance);
     expect(inputText).not.toContain(userProfile);
     expect(inputText).not.toContain(heartbeatChecklist);
-    expect(inputText).toContain(memorySummary);
+    expect(inputText).not.toContain(memorySummary);
+    expect(inputText).toContain("MEMORY.md is available for explicit retrieval when needed");
+    expect(inputText).toContain("Memory context available on demand:");
+    expect(inputText).toContain("MEMORY.md");
     expect(inputText).toContain("Codex loads AGENTS.md natively");
     expect(inputText).not.toContain(agentsGuidance);
     expect(inputText).toContain("Current user request:\nhello");
@@ -5882,7 +5885,7 @@ describe("runCodexAppServerAttempt", () => {
     });
     expect(fileStats.get("MEMORY.md")).toMatchObject({
       rawChars: memorySummary.length,
-      injectedChars: memorySummary.length,
+      injectedChars: 0,
       truncated: false,
     });
     expect(fileStats.get("HEARTBEAT.md")).toMatchObject({
