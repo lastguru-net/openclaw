@@ -5800,12 +5800,7 @@ describe("runCodexAppServerAttempt", () => {
     };
     const config = threadStartParams.config;
 
-    expect(threadStartParams.developerInstructions).toContain(
-      "OpenClaw Codex Native Subagent Workspace Instructions",
-    );
-    expect(threadStartParams.developerInstructions).toContain(
-      "Parent/main turns receive their active workspace instructions through turn-scoped developer instructions and must ignore this inherited subagent-only block.",
-    );
+    expect(threadStartParams.developerInstructions).toContain("OpenClaw Workspace Instructions");
     expect(threadStartParams.developerInstructions).not.toContain(soulGuidance);
     expect(threadStartParams.developerInstructions).not.toContain(identityGuidance);
     expect(threadStartParams.developerInstructions).toContain(toolGuidance);
@@ -5830,17 +5825,8 @@ describe("runCodexAppServerAttempt", () => {
     expect(collaborationInstructions).toContain("OpenClaw Workspace Instructions");
     expect(collaborationInstructions).toContain(soulGuidance);
     expect(collaborationInstructions).toContain(identityGuidance);
+    expect(collaborationInstructions).not.toContain(toolGuidance);
     expect(collaborationInstructions).toContain(userProfile);
-    expect(collaborationInstructions).toContain(toolGuidance);
-    expect(collaborationInstructions.indexOf(soulGuidance)).toBeLessThan(
-      collaborationInstructions.indexOf(identityGuidance),
-    );
-    expect(collaborationInstructions.indexOf(identityGuidance)).toBeLessThan(
-      collaborationInstructions.indexOf(userProfile),
-    );
-    expect(collaborationInstructions.indexOf(userProfile)).toBeLessThan(
-      collaborationInstructions.indexOf(toolGuidance),
-    );
     expect(collaborationInstructions).not.toContain(heartbeatChecklist);
     expect(collaborationInstructions).not.toContain(memorySummary);
     const inputText = turnStartParams.input?.[0]?.text ?? "";

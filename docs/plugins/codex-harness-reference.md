@@ -416,16 +416,12 @@ filenames for persona files, because Codex fallbacks only apply when
 `AGENTS.md` is missing.
 
 For OpenClaw workspace parity, the Codex harness resolves the other bootstrap
-files. Parent turns receive `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md`
-as turn-scoped collaboration instructions so the active persona/user/tool
-guidance keeps workspace order while avoiding parent-only context inheritance by
-Codex-native subagents. Because Codex-native subagent child turns are created by
-Codex internals rather than OpenClaw's turn assembler, `TOOLS.md` is also kept in
-a child-only inherited developer block so native children still receive
-delegated-worker tool context. `HEARTBEAT.md` content is not injected; heartbeat
-turns get a collaboration-mode pointer to read the file when it exists and is
-non-empty. `BOOTSTRAP.md` and `MEMORY.md` when present are forwarded as OpenClaw
-turn input reference context.
+files. `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, and `USER.md` are forwarded as
+OpenClaw Codex developer instructions because they define the active agent,
+available workspace guidance, and user profile. `HEARTBEAT.md` content is not
+injected; heartbeat turns get a collaboration-mode pointer to read the file when
+it exists and is non-empty. `BOOTSTRAP.md` and `MEMORY.md` when present are
+forwarded as OpenClaw turn input reference context.
 
 ## Environment overrides
 

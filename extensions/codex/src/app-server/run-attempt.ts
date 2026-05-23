@@ -230,7 +230,6 @@ const CODEX_INHERITED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set(["tools.md
 const CODEX_TURN_SCOPED_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set([
   "identity.md",
   "soul.md",
-  "tools.md",
   "user.md",
 ]);
 const CODEX_WORKSPACE_DEVELOPER_CONTEXT_BASENAMES = new Set([
@@ -4772,9 +4771,7 @@ async function buildCodexWorkspaceBootstrapContext(params: {
       turnScopedDeveloperInstructionFiles,
       heartbeatReferenceFiles,
       promptContext: renderCodexWorkspaceBootstrapPromptContext(promptContextFiles),
-      developerInstructions: renderCodexWorkspaceDeveloperInstructions(developerInstructionFiles, {
-        inheritedForCodexNativeSubagents: true,
-      }),
+      developerInstructions: renderCodexWorkspaceDeveloperInstructions(developerInstructionFiles),
       turnScopedDeveloperInstructions: renderCodexWorkspaceDeveloperInstructions(
         turnScopedDeveloperInstructionFiles,
       ),
@@ -5034,7 +5031,7 @@ function renderCodexWorkspaceBootstrapPromptContext(
     return undefined;
   }
   const lines = [
-    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, USER.md, and TOOLS.md are provided as turn-scoped collaboration instructions for parent turns. TOOLS.md is also kept in an inherited Codex-native-subagent-only developer block so native Codex subagents receive the expected delegated-worker tool context. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. Those files are not repeated here.",
+    "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. TOOLS.md is provided as inherited Codex developer instructions. SOUL.md, IDENTITY.md, and USER.md are provided as turn-scoped collaboration instructions so native Codex subagents do not inherit them. HEARTBEAT.md is handled by heartbeat collaboration-mode guidance. Those files are not repeated here.",
     "",
     "# Project Context",
     "",
@@ -5101,22 +5098,9 @@ function selectCodexWorkspaceDeveloperInstructionFiles(
 
 function renderCodexWorkspaceDeveloperInstructions(
   files: EmbeddedContextFile[],
-  options: { inheritedForCodexNativeSubagents?: boolean } = {},
 ): string | undefined {
   if (files.length === 0) {
     return undefined;
-  }
-  if (options.inheritedForCodexNativeSubagents) {
-    const lines = [
-      "## OpenClaw Codex Native Subagent Workspace Instructions",
-      "",
-      "These workspace instruction files are inherited only so Codex native subagents receive the expected delegated-worker context. Parent/main turns receive their active workspace instructions through turn-scoped developer instructions and must ignore this inherited subagent-only block.",
-      "",
-    ];
-    for (const file of files) {
-      lines.push(`### ${file.path}`, "", file.content, "");
-    }
-    return lines.join("\n").trim();
   }
   const lines = [
     "## OpenClaw Workspace Instructions",

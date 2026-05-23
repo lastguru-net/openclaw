@@ -178,14 +178,13 @@ prompt surface that matches their lifetime:
 - `BOOTSTRAP.md` (only on brand-new workspaces)
 - `MEMORY.md` when present
 
-On the native Codex harness, Codex loads `AGENTS.md` through its own project-doc
-discovery. Parent turns receive `SOUL.md`, `IDENTITY.md`, `USER.md`, and
-`TOOLS.md` as turn-scoped collaboration instructions. `TOOLS.md` is also kept in
-a child-only inherited developer block because Codex-native subagent turns are
-created by Codex internals, not OpenClaw's turn assembler. `HEARTBEAT.md`
-content is not injected; heartbeat turns get a collaboration-mode note pointing
-to the file when it exists and is non-empty. `MEMORY.md` and active
-`BOOTSTRAP.md` content keep the normal turn-context role for now.
+On the native Codex harness, OpenClaw avoids repeating stable workspace files
+in every user turn. Codex loads `AGENTS.md` through its own project-doc
+discovery. `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, and `USER.md` are forwarded as
+Codex developer instructions. `HEARTBEAT.md` content is not injected; heartbeat
+turns get a collaboration-mode note pointing to the file when it exists and is
+non-empty. `MEMORY.md` and active `BOOTSTRAP.md` content keep the normal
+turn-context role for now.
 
 On non-Codex harnesses, bootstrap files continue to be composed into the
 OpenClaw prompt according to their existing gates. `HEARTBEAT.md` is omitted on
