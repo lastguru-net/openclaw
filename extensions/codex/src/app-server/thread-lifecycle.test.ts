@@ -174,6 +174,17 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
     });
+    expect(request.personality).toBe("none");
+  });
+
+  it("removes Codex model personality on thread/resume", () => {
+    const request = buildThreadResumeParams(createAttemptParams({ provider: "openai" }), {
+      threadId: "thread-1",
+      appServer: createAppServerOptions() as never,
+      developerInstructions: "test instructions",
+    });
+
+    expect(request.personality).toBe("none");
   });
 
   it("allows thread config to opt into Codex code-mode-only", () => {
