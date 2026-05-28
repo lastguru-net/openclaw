@@ -918,6 +918,7 @@ export function buildTurnStartParams(
     sandboxPolicy?: CodexSandboxPolicy;
     environmentSelection?: CodexTurnEnvironmentParams[];
     turnScopedDeveloperInstructions?: string;
+    memoryCollaborationInstructions?: string;
     heartbeatCollaborationInstructions?: string;
   },
 ): CodexTurnStartParams {
@@ -936,6 +937,7 @@ export function buildTurnStartParams(
     ...(options.environmentSelection ? { environments: options.environmentSelection } : {}),
     collaborationMode: buildTurnCollaborationMode(params, {
       turnScopedDeveloperInstructions: options.turnScopedDeveloperInstructions,
+      memoryCollaborationInstructions: options.memoryCollaborationInstructions,
       heartbeatCollaborationInstructions: options.heartbeatCollaborationInstructions,
     }),
   };
@@ -960,6 +962,7 @@ export function buildTurnCollaborationMode(
   params: EmbeddedRunAttemptParams,
   options: {
     turnScopedDeveloperInstructions?: string;
+    memoryCollaborationInstructions?: string;
     heartbeatCollaborationInstructions?: string;
   } = {},
 ): CodexTurnCollaborationMode {
@@ -977,6 +980,7 @@ function buildTurnScopedCollaborationInstructions(
   params: EmbeddedRunAttemptParams,
   options: {
     turnScopedDeveloperInstructions?: string;
+    memoryCollaborationInstructions?: string;
     heartbeatCollaborationInstructions?: string;
   } = {},
 ): string | null {
@@ -984,19 +988,25 @@ function buildTurnScopedCollaborationInstructions(
     return joinPresentSections(
       buildCronCollaborationInstructions(),
       options.turnScopedDeveloperInstructions,
+      options.memoryCollaborationInstructions,
     );
   }
   if (params.trigger === "heartbeat") {
     return joinPresentSections(
       buildHeartbeatCollaborationInstructions(),
       options.turnScopedDeveloperInstructions,
+      options.memoryCollaborationInstructions,
       options.heartbeatCollaborationInstructions,
     );
   }
-  if (options.turnScopedDeveloperInstructions?.trim()) {
+  if (
+    options.turnScopedDeveloperInstructions?.trim() ||
+    options.memoryCollaborationInstructions?.trim()
+  ) {
     return joinPresentSections(
       buildDefaultCollaborationInstructions(),
       options.turnScopedDeveloperInstructions,
+      options.memoryCollaborationInstructions,
     );
   }
   return null;

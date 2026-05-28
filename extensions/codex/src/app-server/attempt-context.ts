@@ -65,6 +65,7 @@ type CodexWorkspaceBootstrapContext = CodexBootstrapContext & {
   promptContext?: string;
   developerInstructions?: string;
   turnScopedDeveloperInstructions?: string;
+  memoryCollaborationInstructions?: string;
   heartbeatCollaborationInstructions?: string;
 };
 
@@ -297,6 +298,12 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       turnScopedDeveloperInstructions: renderCodexWorkspaceCollaborationDeveloperInstructions(
         turnScopedDeveloperInstructionFiles,
       ),
+      memoryCollaborationInstructions: shouldInjectCodexOpenClawPromptContext(params.params)
+        ? renderCodexWorkspaceMemoryReference({
+            files: memoryReferenceFiles,
+            toolNames: params.memoryToolNames,
+          })
+        : undefined,
       heartbeatCollaborationInstructions:
         renderCodexWorkspaceHeartbeatReference(heartbeatReferenceFiles),
     };
@@ -549,7 +556,6 @@ export function buildCodexOpenClawPromptContext(params: {
   params: EmbeddedRunAttemptParams;
   skillsPrompt?: string;
   workspacePromptContext?: string;
-  workspaceMemoryReference?: string;
 }): string | undefined {
   if (!shouldInjectCodexOpenClawPromptContext(params.params)) {
     return undefined;
@@ -558,7 +564,6 @@ export function buildCodexOpenClawPromptContext(params: {
     params.skillsPrompt?.trim()
       ? ["## OpenClaw Skills", "", params.skillsPrompt.trim()].join("\n")
       : undefined,
-    params.workspaceMemoryReference?.trim() ? params.workspaceMemoryReference.trim() : undefined,
     params.workspacePromptContext?.trim()
       ? ["## OpenClaw Workspace Context", "", params.workspacePromptContext.trim()].join("\n")
       : undefined,

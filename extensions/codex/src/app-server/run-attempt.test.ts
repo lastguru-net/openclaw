@@ -1831,10 +1831,14 @@ describe("runCodexAppServerAttempt", () => {
     expect(collaborationInstructions).toContain(identityGuidance);
     expect(collaborationInstructions).not.toContain(toolGuidance);
     expect(collaborationInstructions).toContain(userProfile);
+    expect(collaborationInstructions).toContain("OpenClaw Workspace Memory");
+    expect(collaborationInstructions).toContain("MEMORY.md exists in the active agent workspace");
+    expect(collaborationInstructions).toContain("memory_search");
+    expect(collaborationInstructions).toContain("memory_get");
     expect(collaborationInstructions).not.toContain(heartbeatChecklist);
     expect(collaborationInstructions).not.toContain(memorySummary);
     const inputText = turnStartParams.input?.[0]?.text ?? "";
-    expect(inputText).toContain("OpenClaw runtime context for this turn:");
+    expect(inputText).not.toContain("OpenClaw runtime context for this turn:");
     expect(inputText).not.toContain("does not override Codex system/developer instructions");
     expect(inputText).not.toContain("not developer policy");
     expect(inputText).not.toContain(soulGuidance);
@@ -1843,13 +1847,13 @@ describe("runCodexAppServerAttempt", () => {
     expect(inputText).not.toContain(userProfile);
     expect(inputText).not.toContain(heartbeatChecklist);
     expect(inputText).not.toContain(memorySummary);
-    expect(inputText).toContain("OpenClaw Workspace Memory");
-    expect(inputText).toContain("MEMORY.md exists in the active agent workspace");
-    expect(inputText).toContain("memory_search");
-    expect(inputText).toContain("memory_get");
+    expect(inputText).not.toContain("OpenClaw Workspace Memory");
+    expect(inputText).not.toContain("MEMORY.md exists in the active agent workspace");
+    expect(inputText).not.toContain("memory_search");
+    expect(inputText).not.toContain("memory_get");
     expect(inputText).not.toContain("Codex loads AGENTS.md natively");
     expect(inputText).not.toContain(agentsGuidance);
-    expect(inputText).toContain("Current user request:\nhello");
+    expect(inputText).toBe("hello");
     expect(result.systemPromptReport?.systemPrompt.chars).toBe(
       [threadStartParams.developerInstructions ?? "", collaborationInstructions].join("\n\n")
         .length,
@@ -1949,12 +1953,23 @@ describe("runCodexAppServerAttempt", () => {
     const turnStart = harness.requests.find((request) => request.method === "turn/start");
     const turnStartParams = turnStart?.params as {
       input?: Array<{ text?: string }>;
+      collaborationMode?: {
+        settings?: {
+          developer_instructions?: string | null;
+        };
+      };
     };
     const inputText = turnStartParams.input?.[0]?.text ?? "";
-    expect(inputText).toContain("OpenClaw Workspace Memory");
-    expect(inputText).toContain("memory_get");
+    const collaborationInstructions =
+      turnStartParams.collaborationMode?.settings?.developer_instructions ?? "";
+    expect(inputText).not.toContain("OpenClaw Workspace Memory");
+    expect(inputText).not.toContain("memory_get");
     expect(inputText).not.toContain("memory_search");
     expect(inputText).not.toContain(memorySummary);
+    expect(collaborationInstructions).toContain("OpenClaw Workspace Memory");
+    expect(collaborationInstructions).toContain("memory_get");
+    expect(collaborationInstructions).not.toContain("memory_search");
+    expect(collaborationInstructions).not.toContain(memorySummary);
 
     const fileStats = new Map(
       result.systemPromptReport?.injectedWorkspaceFiles.map((file) => [file.name, file]) ?? [],
@@ -2049,11 +2064,20 @@ describe("runCodexAppServerAttempt", () => {
     const turnStart = harness.requests.find((request) => request.method === "turn/start");
     const turnStartParams = turnStart?.params as {
       input?: Array<{ text?: string }>;
+      collaborationMode?: {
+        settings?: {
+          developer_instructions?: string | null;
+        };
+      };
     };
     const inputText = turnStartParams.input?.[0]?.text ?? "";
-    expect(inputText).toContain("OpenClaw Workspace Memory");
+    const collaborationInstructions =
+      turnStartParams.collaborationMode?.settings?.developer_instructions ?? "";
+    expect(inputText).not.toContain("OpenClaw Workspace Memory");
     expect(inputText).not.toContain(memorySummary);
     expect(inputText).toContain(hookContext);
+    expect(collaborationInstructions).toContain("OpenClaw Workspace Memory");
+    expect(collaborationInstructions).not.toContain(memorySummary);
 
     const fileStats = new Map(
       result.systemPromptReport?.injectedWorkspaceFiles.map((file) => [file.name, file]) ?? [],
@@ -2111,11 +2135,21 @@ describe("runCodexAppServerAttempt", () => {
     const turnStart = harness.requests.find((request) => request.method === "turn/start");
     const turnStartParams = turnStart?.params as {
       input?: Array<{ text?: string }>;
+      collaborationMode?: {
+        settings?: {
+          developer_instructions?: string | null;
+        };
+      };
     };
     const inputText = turnStartParams.input?.[0]?.text ?? "";
-    expect(inputText).toContain("OpenClaw Workspace Memory");
+    const collaborationInstructions =
+      turnStartParams.collaborationMode?.settings?.developer_instructions ?? "";
+    expect(inputText).not.toContain("OpenClaw Workspace Memory");
     expect(inputText).not.toContain(rootMemory);
     expect(inputText).toContain(nestedMemory);
+    expect(collaborationInstructions).toContain("OpenClaw Workspace Memory");
+    expect(collaborationInstructions).not.toContain(rootMemory);
+    expect(collaborationInstructions).not.toContain(nestedMemory);
 
     const files = result.systemPromptReport?.injectedWorkspaceFiles ?? [];
     const rootMemoryStats = files.find(
