@@ -98,33 +98,6 @@ describe("projectContextEngineAssemblyForCodex", () => {
     expect(result.promptText).not.toContain("cat .env");
   });
 
-  it("keeps explicit elide mode tool stubs", () => {
-    const result = projectContextEngineAssemblyForCodex({
-      assembledMessages: [
-        {
-          role: "assistant",
-          content: [
-            { type: "toolCall", name: "exec", input: { token: "sk-secret", cmd: "cat .env" } },
-          ],
-          timestamp: 1,
-        } as unknown as AgentMessage,
-        {
-          role: "toolResult",
-          content: [{ type: "toolResult", toolUseId: "call-1", content: "API_KEY=sk-secret" }],
-          timestamp: 2,
-        } as unknown as AgentMessage,
-      ],
-      originalHistoryMessages: [],
-      prompt: "continue",
-      toolPayloadMode: "elide",
-    });
-
-    expect(result.promptText).toContain("tool call: exec [input omitted]");
-    expect(result.promptText).toContain("tool result: call-1 [content omitted]");
-    expect(result.promptText).not.toContain("sk-secret");
-    expect(result.promptText).not.toContain("cat .env");
-  });
-
   it("coalesces adjacent default tool activity summaries", () => {
     const result = projectContextEngineAssemblyForCodex({
       assembledMessages: [

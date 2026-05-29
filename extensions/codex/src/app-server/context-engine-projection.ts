@@ -8,7 +8,7 @@ type CodexContextProjection = {
   prePromptMessageCount: number;
 };
 
-type ToolPayloadMode = "summary" | "elide" | "preserve";
+type ToolPayloadMode = "summary" | "preserve";
 
 type ToolActivityCounts = {
   toolCalls: number;
@@ -211,10 +211,7 @@ function renderMessagesForCodexSummaryContext(
   return rendered.join("\n\n");
 }
 
-function renderMessageBody(
-  message: AgentMessage,
-  options: { maxTextPartChars: number; toolPayloadMode: "elide" | "preserve" },
-): string {
+function renderMessageBody(message: AgentMessage, options: { maxTextPartChars: number }): string {
   if (!hasMessageContent(message)) {
     return "";
   }
@@ -274,10 +271,7 @@ function renderMessageBodyForSummary(
   };
 }
 
-function renderMessagePart(
-  part: unknown,
-  options: { maxTextPartChars: number; toolPayloadMode: "elide" | "preserve" },
-): string {
+function renderMessagePart(part: unknown, options: { maxTextPartChars: number }): string {
   if (!part || typeof part !== "object") {
     return "";
   }
@@ -293,24 +287,18 @@ function renderMessagePart(
   }
   if (type === "toolCall" || type === "tool_use") {
     const label = `tool call${typeof record.name === "string" ? `: ${record.name}` : ""}`;
-    if (options.toolPayloadMode === "preserve") {
-      return truncateText(
-        `${label}\n${stableJson(renderToolCallPayload(record))}`,
-        options.maxTextPartChars,
-      );
-    }
-    return `${label} [input omitted]`;
+    return truncateText(
+      `${label}\n${stableJson(renderToolCallPayload(record))}`,
+      options.maxTextPartChars,
+    );
   }
   if (type === "toolResult" || type === "tool_result") {
     const label =
       typeof record.toolUseId === "string" ? `tool result: ${record.toolUseId}` : "tool result";
-    if (options.toolPayloadMode === "preserve") {
-      return truncateText(
-        `${label}\n${stableJson(renderToolResultPayload(record))}`,
-        options.maxTextPartChars,
-      );
-    }
-    return `${label} [content omitted]`;
+    return truncateText(
+      `${label}\n${stableJson(renderToolResultPayload(record))}`,
+      options.maxTextPartChars,
+    );
   }
   return `[${type ?? "non-text"} content omitted]`;
 }
