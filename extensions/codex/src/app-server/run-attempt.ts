@@ -704,7 +704,7 @@ export async function runCodexAppServerAttempt(
           config: params.config,
         }),
       }),
-      ...(contextEngineProjection ? { toolPayloadMode: "preserve" as const } : {}),
+      toolPayloadMode: contextEngineProjection ? "preserve" : "summary",
     });
     const projectionDecision = contextEngineProjection
       ? resolveContextEngineBootstrapProjectionDecision({
