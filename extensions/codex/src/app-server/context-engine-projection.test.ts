@@ -68,7 +68,7 @@ describe("projectContextEngineAssemblyForCodex", () => {
     expect(ordered.prePromptMessageCount).toBe(1);
   });
 
-  it("frames projected history as reference data and omits tool payloads", () => {
+  it("summarizes tool payloads by default", () => {
     const result = projectContextEngineAssemblyForCodex({
       assembledMessages: [
         {
@@ -89,10 +89,78 @@ describe("projectContextEngineAssemblyForCodex", () => {
     });
 
     expect(result.promptText).toContain("quoted reference data");
+    expect(result.promptText).toContain("[tool activity]\n1 tool call and 1 tool result omitted.");
+    expect(result.promptText).not.toContain("tool call: exec [input omitted]");
+    expect(result.promptText).not.toContain("tool result: call-1 [content omitted]");
+    expect(result.promptText).not.toContain("call-1");
+    expect(result.promptText).not.toContain("exec");
+    expect(result.promptText).not.toContain("sk-secret");
+    expect(result.promptText).not.toContain("cat .env");
+  });
+
+  it("keeps explicit elide mode tool stubs", () => {
+    const result = projectContextEngineAssemblyForCodex({
+      assembledMessages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "toolCall", name: "exec", input: { token: "sk-secret", cmd: "cat .env" } },
+          ],
+          timestamp: 1,
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          content: [{ type: "toolResult", toolUseId: "call-1", content: "API_KEY=sk-secret" }],
+          timestamp: 2,
+        } as unknown as AgentMessage,
+      ],
+      originalHistoryMessages: [],
+      prompt: "continue",
+      toolPayloadMode: "elide",
+    });
+
     expect(result.promptText).toContain("tool call: exec [input omitted]");
     expect(result.promptText).toContain("tool result: call-1 [content omitted]");
     expect(result.promptText).not.toContain("sk-secret");
     expect(result.promptText).not.toContain("cat .env");
+  });
+
+  it("coalesces adjacent default tool activity summaries", () => {
+    const result = projectContextEngineAssemblyForCodex({
+      assembledMessages: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", name: "exec", input: { cmd: "date" } }],
+          timestamp: 1,
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          content: [{ type: "toolResult", toolUseId: "call-1", content: "today" }],
+          timestamp: 2,
+        } as unknown as AgentMessage,
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", name: "apply_patch", input: "*** Begin Patch" }],
+          timestamp: 3,
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          content: [{ type: "toolResult", toolUseId: "call-2", content: "patched" }],
+          timestamp: 4,
+        } as unknown as AgentMessage,
+        textMessage("assistant", "Done."),
+      ],
+      originalHistoryMessages: [],
+      prompt: "continue",
+    });
+
+    expect(result.promptText).toContain(
+      "[tool activity]\n2 tool calls and 2 tool results omitted.\n\n[assistant]\nDone.",
+    );
+    expect(result.promptText).not.toContain("call-1");
+    expect(result.promptText).not.toContain("call-2");
+    expect(result.promptText).not.toContain("tool call: exec [input omitted]");
+    expect(result.promptText).not.toContain("tool call: apply_patch [input omitted]");
   });
 
   it("preserves redacted tool payload context for thread bootstrap projections", () => {

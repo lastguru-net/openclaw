@@ -8,6 +8,19 @@ type CodexContextProjection = {
   prePromptMessageCount: number;
 };
 
+type ToolPayloadMode = "summary" | "elide" | "preserve";
+
+type ToolActivityCounts = {
+  toolCalls: number;
+  toolResults: number;
+};
+
+type SummaryRenderedMessage = {
+  role: AgentMessage["role"];
+  text: string;
+  toolActivity: ToolActivityCounts;
+};
+
 const CONTEXT_HEADER = "OpenClaw assembled context for this turn:";
 const CONTEXT_OPEN = "<conversation_context>";
 const CONTEXT_CLOSE = "</conversation_context>";
@@ -32,14 +45,14 @@ export function projectContextEngineAssemblyForCodex(params: {
   prompt: string;
   systemPromptAddition?: string;
   maxRenderedContextChars?: number;
-  toolPayloadMode?: "elide" | "preserve";
+  toolPayloadMode?: ToolPayloadMode;
 }): CodexContextProjection {
   const prompt = params.prompt.trim();
   const contextMessages = dropDuplicateTrailingPrompt(params.assembledMessages, prompt);
   const maxRenderedContextChars = normalizeRenderedContextMaxChars(params.maxRenderedContextChars);
   const renderedContext = renderMessagesForCodexContext(contextMessages, {
     maxTextPartChars: resolveTextPartMaxChars(maxRenderedContextChars),
-    toolPayloadMode: params.toolPayloadMode ?? "elide",
+    toolPayloadMode: params.toolPayloadMode ?? "summary",
   });
   const promptText = renderedContext
     ? [
@@ -148,8 +161,11 @@ function dropDuplicateTrailingPrompt(messages: AgentMessage[], prompt: string): 
 
 function renderMessagesForCodexContext(
   messages: AgentMessage[],
-  options: { maxTextPartChars: number; toolPayloadMode: "elide" | "preserve" },
+  options: { maxTextPartChars: number; toolPayloadMode: ToolPayloadMode },
 ): string {
+  if (options.toolPayloadMode === "summary") {
+    return renderMessagesForCodexSummaryContext(messages, options);
+  }
   return messages
     .map((message) => {
       const text = renderMessageBody(message, options);
@@ -157,6 +173,42 @@ function renderMessagesForCodexContext(
     })
     .filter((value): value is string => Boolean(value))
     .join("\n\n");
+}
+
+function renderMessagesForCodexSummaryContext(
+  messages: AgentMessage[],
+  options: { maxTextPartChars: number },
+): string {
+  const rendered: string[] = [];
+  const pendingToolActivity: ToolActivityCounts = { toolCalls: 0, toolResults: 0 };
+
+  const flushPendingToolActivity = () => {
+    const summary = formatToolActivitySummary(pendingToolActivity);
+    if (summary) {
+      rendered.push(`[tool activity]\n${summary}`);
+      pendingToolActivity.toolCalls = 0;
+      pendingToolActivity.toolResults = 0;
+    }
+  };
+
+  for (const message of messages) {
+    const body = renderMessageBodyForSummary(message, options);
+    if (!body.text && hasToolActivity(body.toolActivity)) {
+      pendingToolActivity.toolCalls += body.toolActivity.toolCalls;
+      pendingToolActivity.toolResults += body.toolActivity.toolResults;
+      continue;
+    }
+
+    flushPendingToolActivity();
+    const summary = formatToolActivitySummary(body.toolActivity);
+    const text = [body.text, summary].filter(Boolean).join("\n").trim();
+    if (text) {
+      rendered.push(`[${message.role}]\n${text}`);
+    }
+  }
+
+  flushPendingToolActivity();
+  return rendered.join("\n\n");
 }
 
 function renderMessageBody(
@@ -177,6 +229,49 @@ function renderMessageBody(
     .filter((value): value is string => value.length > 0)
     .join("\n")
     .trim();
+}
+
+function renderMessageBodyForSummary(
+  message: AgentMessage,
+  options: { maxTextPartChars: number },
+): SummaryRenderedMessage {
+  const empty = {
+    role: message.role,
+    text: "",
+    toolActivity: { toolCalls: 0, toolResults: 0 },
+  };
+  if (!hasMessageContent(message)) {
+    return empty;
+  }
+  if (typeof message.content === "string") {
+    return {
+      ...empty,
+      text: truncateText(message.content.trim(), options.maxTextPartChars),
+    };
+  }
+  if (!Array.isArray(message.content)) {
+    return {
+      ...empty,
+      text: "[non-text content omitted]",
+    };
+  }
+
+  const textParts: string[] = [];
+  const toolActivity: ToolActivityCounts = { toolCalls: 0, toolResults: 0 };
+  for (const part of message.content) {
+    const rendered = renderMessagePartForSummary(part, options);
+    if (rendered.text) {
+      textParts.push(rendered.text);
+    }
+    toolActivity.toolCalls += rendered.toolActivity.toolCalls;
+    toolActivity.toolResults += rendered.toolActivity.toolResults;
+  }
+
+  return {
+    role: message.role,
+    text: textParts.join("\n").trim(),
+    toolActivity,
+  };
 }
 
 function renderMessagePart(
@@ -218,6 +313,55 @@ function renderMessagePart(
     return `${label} [content omitted]`;
   }
   return `[${type ?? "non-text"} content omitted]`;
+}
+
+function renderMessagePartForSummary(
+  part: unknown,
+  options: { maxTextPartChars: number },
+): { text: string; toolActivity: ToolActivityCounts } {
+  const empty = { text: "", toolActivity: { toolCalls: 0, toolResults: 0 } };
+  if (!part || typeof part !== "object") {
+    return empty;
+  }
+  const record = part as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type : undefined;
+  if (type === "text") {
+    return {
+      ...empty,
+      text:
+        typeof record.text === "string"
+          ? truncateText(record.text.trim(), options.maxTextPartChars)
+          : "",
+    };
+  }
+  if (type === "image") {
+    return { ...empty, text: "[image omitted]" };
+  }
+  if (type === "toolCall" || type === "tool_use") {
+    return { text: "", toolActivity: { toolCalls: 1, toolResults: 0 } };
+  }
+  if (type === "toolResult" || type === "tool_result") {
+    return { text: "", toolActivity: { toolCalls: 0, toolResults: 1 } };
+  }
+  return { ...empty, text: `[${type ?? "non-text"} content omitted]` };
+}
+
+function hasToolActivity(activity: ToolActivityCounts): boolean {
+  return activity.toolCalls > 0 || activity.toolResults > 0;
+}
+
+function formatToolActivitySummary(activity: ToolActivityCounts): string {
+  if (!hasToolActivity(activity)) {
+    return "";
+  }
+  return `${formatCount(activity.toolCalls, "tool call")} and ${formatCount(
+    activity.toolResults,
+    "tool result",
+  )} omitted.`;
+}
+
+function formatCount(count: number, label: string): string {
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
 }
 
 function renderToolCallPayload(record: Record<string, unknown>): Record<string, unknown> {
