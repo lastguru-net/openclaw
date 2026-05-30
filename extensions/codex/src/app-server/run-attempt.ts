@@ -792,7 +792,10 @@ export async function runCodexAppServerAttempt(
     });
   let promptBuild = await buildPromptFromCurrentInputs();
   const decorateCodexTurnPromptText = (prompt: string) =>
-    prependCodexOpenClawPromptContext(prompt, openClawPromptContext);
+    prependCodexOpenClawPromptContext(prompt, openClawPromptContext, {
+      preservePromptWithoutContext:
+        params.bootstrapContextMode === "lightweight" && params.bootstrapContextRunKind === "cron",
+    });
   let codexTurnPromptText = decorateCodexTurnPromptText(promptBuild.prompt);
   const buildCodexTurnCollaborationDeveloperInstructions = () =>
     buildTurnCollaborationMode(params, {
@@ -999,7 +1002,7 @@ export async function runCodexAppServerAttempt(
   recordCodexTrajectoryContext(trajectoryRecorder, {
     attempt: params,
     cwd: effectiveCwd,
-    developerInstructions: promptBuild.developerInstructions,
+    developerInstructions: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
     tools: toolBridge.availableSpecs,
   });

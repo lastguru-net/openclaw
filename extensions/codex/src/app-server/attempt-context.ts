@@ -598,11 +598,12 @@ export function renderCodexSkillsCollaborationInstructions(params: {
 export function prependCodexOpenClawPromptContext(
   prompt: string,
   context: string | undefined,
+  options: { preservePromptWithoutContext?: boolean } = {},
 ): string {
-  if (!context?.trim()) {
+  const { deliveryHint, prompt: promptWithoutDeliveryHint } = splitLeadingCodexDeliveryHint(prompt);
+  if (!context?.trim() && (!deliveryHint || options.preservePromptWithoutContext)) {
     return prompt;
   }
-  const { deliveryHint, prompt: promptWithoutDeliveryHint } = splitLeadingCodexDeliveryHint(prompt);
   const promptSection = promptWithoutDeliveryHint.startsWith(
     "OpenClaw assembled context for this turn:",
   )
@@ -615,7 +616,7 @@ export function prependCodexOpenClawPromptContext(
         deliveryHint,
       ].join("\n")
     : undefined;
-  return [context.trim(), deliverySection, promptSection].filter(Boolean).join("\n\n");
+  return [context?.trim(), deliverySection, promptSection].filter(Boolean).join("\n\n");
 }
 
 const CODEX_DELIVERY_HINT_LINES = [

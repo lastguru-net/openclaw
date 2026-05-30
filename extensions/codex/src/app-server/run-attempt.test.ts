@@ -1149,10 +1149,13 @@ describe("runCodexAppServerAttempt", () => {
     )
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { data?: { prompt?: string }; type?: string });
-    expect(trajectoryEvents.find((event) => event.type === "context.compiled")?.data?.prompt).toBe(
-      inputText,
-    );
+      .map(
+        (line) =>
+          JSON.parse(line) as { data?: { prompt?: string; systemPrompt?: string }; type?: string },
+      );
+    const compiledContext = trajectoryEvents.find((event) => event.type === "context.compiled");
+    expect(compiledContext?.data?.prompt).toBe(inputText);
+    expect(compiledContext?.data?.systemPrompt).toContain("## OpenClaw Skills");
     expect(trajectoryEvents.find((event) => event.type === "prompt.submitted")?.data?.prompt).toBe(
       inputText,
     );
@@ -1165,8 +1168,6 @@ describe("runCodexAppServerAttempt", () => {
   it("keeps leading delivery hints out of the Codex current user request", async () => {
     const sessionFile = path.join(tempDir, "session-delivery-hint.jsonl");
     const workspaceDir = path.join(tempDir, "workspace-delivery-hint");
-    await fs.mkdir(workspaceDir, { recursive: true });
-    await fs.writeFile(path.join(workspaceDir, "BOOTSTRAP.md"), "Bootstrap context.");
     const harness = createStartedThreadHarness();
     const params = createParams(sessionFile, workspaceDir);
     params.prompt = "Delivery: to send a message, use the `message` tool.\n\nhello";
