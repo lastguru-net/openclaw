@@ -237,29 +237,25 @@ export async function resolveRuntimeConversationBindingRouteAsync(
   > = params.resolveRoute ? { resolveRoute: params.resolveRoute } : { route: { ...params.route } };
   const conversation = resolveConfiguredBindingConversationRef(params);
   const service = getSessionBindingService();
-  const inspect = async () => {
-    const inspection = await service.inspectByConversationAsync(conversation);
-    const route = routeInput.resolveRoute
-      ? await routeInput.resolveRoute(
-          selectRuntimeConversationBindingRoute(inspection).routeSelection,
-        )
-      : routeInput.route;
-    return inspectRuntimeConversationBindingRoute({ route, inspection });
-  };
-  const result = await inspect();
-  if (!result.bindingRecord || params.touchBinding === false) {
-    return result;
+  const inspection = await service.inspectByConversationAsync(conversation);
+  const route = routeInput.resolveRoute
+    ? await routeInput.resolveRoute(
+        selectRuntimeConversationBindingRoute(inspection).routeSelection,
+      )
+    : routeInput.route;
+  const result = inspectRuntimeConversationBindingRoute({ route, inspection });
+  if (result.bindingRecord && params.touchBinding !== false) {
+    await service.touchAsync(
+      result.bindingRecord.bindingId,
+      undefined,
+      result.bindingRecord.conversation,
+    );
   }
-  await service.touchAsync(
-    result.bindingRecord.bindingId,
-    undefined,
-    result.bindingRecord.conversation,
-  );
-  // Activity is best effort if an operator rebinds during the write; routing still uses a fresh read.
-  return inspect();
+  // A concurrent rebind may leave one activity stamp on its successor; delivery checks live ownership.
+  return result;
 }
 
-/** @deprecated Use resolveRuntimeConversationBindingRouteAsync; removed in the next Plugin SDK major. */
+/** @deprecated Use resolveRuntimeConversationBindingRouteAsync; final compatibility day: 2026-12-31. Removal in the first January 2027 stable release. */
 export function resolveRuntimeConversationBindingRoute(
   params: RuntimeConversationBindingRouteInput & {
     touchBinding?: boolean;
@@ -290,30 +286,17 @@ export async function ensureConfiguredBindingRouteReady(params: {
   cfg: OpenClawConfig;
   bindingResolution: ConfiguredBindingResolution | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const readyPromise = ensureConfiguredBindingTargetReady(params);
-  const timeoutToken = Symbol("configured-binding-route-ready-timeout");
-  const result = await raceWithTimeout(
-    readyPromise,
+  return await raceWithTimeout(
+    ensureConfiguredBindingTargetReady(params),
     CONFIGURED_BINDING_ROUTE_READY_TIMEOUT_MS,
-    (): typeof timeoutToken => timeoutToken,
+    (): { ok: false; error: string } => {
+      logVerbose(
+        `configured binding route ready check timed out after ${
+          CONFIGURED_BINDING_ROUTE_READY_TIMEOUT_MS / 1_000
+        }s`,
+      );
+      return { ok: false, error: "Configured binding route ready check timed out" };
+    },
     { ref: false },
   );
-  if (result !== timeoutToken) {
-    return result;
-  }
-  // Let late driver work finish for diagnostics, but return a bounded failure to the caller.
-  logVerbose(
-    `configured binding route ready check timed out after ${
-      CONFIGURED_BINDING_ROUTE_READY_TIMEOUT_MS / 1_000
-    }s`,
-  );
-  readyPromise.then(
-    (lateResult) =>
-      logVerbose(
-        `configured binding route ready check settled after timeout (ok=${lateResult.ok})`,
-      ),
-    (err: unknown) =>
-      logVerbose(`configured binding route ready check rejected after timeout: ${String(err)}`),
-  );
-  return { ok: false, error: "Configured binding route ready check timed out" };
 }
