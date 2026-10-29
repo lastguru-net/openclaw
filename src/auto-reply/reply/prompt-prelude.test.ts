@@ -5,6 +5,8 @@ import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js"
 import { buildCurrentInboundPrompt } from "../../agents/embedded-agent-runner/run/runtime-context-prompt.js";
 import * as gitCoauthorPrompt from "../../agents/git-coauthor-prompt.js";
 import { MESSAGE_TOOL_ONLY_DELIVERY_HINT } from "../../plugin-sdk/message-tool-delivery-hints.js";
+import * as userPreferences from "../../state/user-preferences.js";
+import { bindRequesterProfile } from "../requester-profile.js";
 import { parseSoftResetCommand } from "./commands-reset-mode.js";
 import type { prepareReplyRunContext, PreparedReplyRunContext } from "./get-reply-run-context.js";
 import { prepareReadyReply } from "./get-reply-run-context.test-support.js";
@@ -127,7 +129,7 @@ it("keeps Telegram reply text beside its marker", async () => {
   const prompt = currentPrompt(envelope);
   expect(prompt).toContain('[Replying to: "The restore finished."]\n#42: Tldr');
   expect(envelope.transcriptCommandBody).toBe("Tldr");
-  expect(prompt).toContain("PR attribution: ⟦openclaw:ctx⟧");
+  expect(prompt).not.toContain("PR attribution:");
   expect(prompt.indexOf(threadNote)).toBeGreaterThanOrEqual(0);
   expect(prompt.indexOf(threadNote)).toBeLessThan(prompt.indexOf("System: Scheduled digest."));
   expect(prompt.indexOf("System: Scheduled digest.")).toBeLessThan(
@@ -285,4 +287,58 @@ it("keeps requester trailers in full and resumed backend prompt projections", as
     text: trailer,
   });
   expect(envelope.transcriptCommandBody).not.toContain(trailer);
+});
+
+it("scopes PR attribution to each requester turn in the same session", async () => {
+  const preferences = new Map<string, unknown>();
+  vi.spyOn(userPreferences, "getUserPreferenceValues").mockImplementation(async (ids) => ({
+    values: new Map(ids.map((id) => [id, preferences.get(id)])),
+    isCurrent: () => true,
+  }));
+  const sessionEntry = { sessionId: "attribution-session", updatedAt: 1 };
+  const history: string[] = [];
+  // Exercise the real prompt composition; storage is fixed I/O, not an attribution decision.
+  // Retained instructions are checked for explicit scope, not model compliance.
+  for (const [sender, preference, incognito, enabled] of [
+    ["alice", undefined, false, false],
+    ["alice", false, false, false],
+    ["alice", true, false, true],
+    ["bob", undefined, false, false],
+    ["alice", false, false, false],
+    ["alice", true, true, false],
+    ["alice", true, false, true],
+  ] as const) {
+    preferences.set(sender, preference);
+    const sessionCtx = context("Create a PR", {
+      Provider: "discord",
+      ChatType: "group",
+      SenderId: sender,
+      InboundEventKind: "user_request",
+    });
+    bindRequesterProfile(sessionCtx, { id: sender, displayName: sender, isCurrent: () => true });
+    const envelope = await envelopeFor(sessionCtx, {
+      sessionKey: "agent:main:discord:channel:attribution",
+      sessionEntry: { ...sessionEntry, incognito: incognito || undefined },
+      isNewSession: history.length === 0,
+    });
+    const prompt = currentPrompt(envelope);
+    expect(prompt.includes("PR attribution:"), `${sender}/${preference}/${incognito}`).toBe(
+      enabled,
+    );
+    if (enabled) {
+      expect(prompt).toContain("only to this request from this verified requester");
+      expect(prompt).toContain("Do not carry it forward to later requests or other requesters");
+      expect(prompt).toContain(
+        "If a later request has no enabled attribution block, do not add the footer",
+      );
+      expect(prompt).toContain("<!-- openclaw:attribution=off -->");
+      expect(prompt).toContain("Never add it when reviewing or updating an existing PR");
+    } else {
+      expect(prompt).not.toContain("Made with [OpenClaw]");
+      expect(prompt).not.toContain("PR attribution preference");
+    }
+    expect(envelope.transcriptCommandBody).toBe("Create a PR");
+    history.push(prompt);
+  }
+  expect(history.filter((prompt) => prompt.includes("PR attribution:"))).toHaveLength(2);
 });

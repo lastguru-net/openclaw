@@ -52,7 +52,7 @@ ${PR_ATTRIBUTION_FOOTER}`;
 
 export function buildPrAttributionPrompt(enabled: boolean): string {
   return enabled
-    ? `PR attribution preference for this verified requester: enabled. When creating a new pull request (including gh or shell workflows), append this exact footer once: ${PR_ATTRIBUTION_FOOTER}
+    ? `PR attribution preference: enabled only for this request. This instruction applies only to this request from this verified requester. Do not carry it forward to later requests or other requesters, even in the same conversation. If a later request has no enabled attribution block, do not add the footer based on this instruction. When creating a new pull request for this request (including gh or shell workflows), append this exact footer once: ${PR_ATTRIBUTION_FOOTER}
 Omit it if the user opts out for that PR or its creation body contains ${PR_ATTRIBUTION_OPTOUT}. Never add it when reviewing or updating an existing PR, or restore a footer someone removed. Preserve human credit and work-session links. This preference is independent of Git co-author credit and GitHub publishing identity.`
-    : "PR attribution preference for this request: off. Do not add the OpenClaw attribution footer to pull requests based on another participant's preference or an earlier turn. Preserve existing PR bodies and human credit.";
+    : "";
 }
