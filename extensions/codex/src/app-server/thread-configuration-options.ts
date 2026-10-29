@@ -18,6 +18,8 @@ export type CodexThreadConfigurationOptions = {
   preserveNativeCollaboration?: boolean;
   appServer: CodexAppServerRuntimeOptions;
   developerInstructions?: string;
+  /** Observe assembled native instructions without rebuilding configuration decisions. */
+  onDeveloperInstructions?: (instructions: string) => void;
   /** Skills, persona, and memory carried with thread developer instructions, separate from generic policy. */
   refreshableInstructions?: string;
   config?: JsonObject;

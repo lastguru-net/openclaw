@@ -1544,7 +1544,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
     let secondTurn = false;
     const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "config/read") {
-        return { layers: [], config: { mcp_servers: {} } };
+        return { origins: {}, layers: [], config: { mcp_servers: {} } };
       }
       if (method === "configRequirements/read") {
         return { requirements: null };
@@ -1982,7 +1982,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
       let pauseCleanup = false;
       const respond = vi.fn(async (method: string) => {
         if (method === "config/read") {
-          return { config: {}, layers: [] };
+          return { config: {}, origins: {}, layers: [] };
         }
         if (method === "configRequirements/read") {
           return { requirements: null };
@@ -2159,7 +2159,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
     params.pluginHarnessToolPolicyRestricted = true;
     const respond = vi.fn(async (method: string) => {
       if (method === "config/read") {
-        return { config: {}, layers: [] };
+        return { config: {}, origins: {}, layers: [] };
       }
       if (method === "configRequirements/read") {
         return {
@@ -2239,7 +2239,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
     const abandonClient = vi.fn(async () => {});
     const request = vi.fn(async (method: string) => {
       if (method === "config/read") {
-        return { config: {}, layers: [] };
+        return { config: {}, origins: {}, layers: [] };
       }
       if (method === "configRequirements/read") {
         return { requirements: null };
