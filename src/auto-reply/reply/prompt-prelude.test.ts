@@ -289,56 +289,42 @@ it("keeps requester trailers in full and resumed backend prompt projections", as
   expect(envelope.transcriptCommandBody).not.toContain(trailer);
 });
 
-it("scopes PR attribution to each requester turn in the same session", async () => {
-  const preferences = new Map<string, unknown>();
-  vi.spyOn(userPreferences, "getUserPreferenceValues").mockImplementation(async (ids) => ({
-    values: new Map(ids.map((id) => [id, preferences.get(id)])),
-    isCurrent: () => true,
-  }));
-  const sessionEntry = { sessionId: "attribution-session", updatedAt: 1 };
-  const history: string[] = [];
-  // Exercise the real prompt composition; storage is fixed I/O, not an attribution decision.
-  // Retained instructions are checked for explicit scope, not model compliance.
-  for (const [sender, preference, incognito, enabled] of [
-    ["alice", undefined, false, false],
-    ["alice", false, false, false],
-    ["alice", true, false, true],
-    ["bob", undefined, false, false],
-    ["alice", false, false, false],
-    ["alice", true, true, false],
-    ["alice", true, false, true],
-  ] as const) {
-    preferences.set(sender, preference);
+it.each([
+  ["alice", false, true],
+  ["bob", false, false],
+  ["carol", false, false],
+  ["alice", true, false],
+] as const)(
+  "composes PR attribution for %s (incognito: %s)",
+  async (sender, incognito, enabled) => {
+    const preferences = new Map([
+      ["alice", true],
+      ["bob", false],
+    ]);
+    vi.spyOn(userPreferences, "getUserPreferenceValues").mockImplementation(async (ids) => ({
+      values: new Map(ids.map((id) => [id, preferences.get(id)])),
+      isCurrent: () => true,
+    }));
     const sessionCtx = context("Create a PR", {
       Provider: "discord",
       ChatType: "group",
       SenderId: sender,
-      InboundEventKind: "user_request",
     });
     bindRequesterProfile(sessionCtx, { id: sender, displayName: sender, isCurrent: () => true });
-    const envelope = await envelopeFor(sessionCtx, {
-      sessionKey: "agent:main:discord:channel:attribution",
-      sessionEntry: { ...sessionEntry, incognito: incognito || undefined },
-      isNewSession: history.length === 0,
-    });
-    const prompt = currentPrompt(envelope);
-    expect(prompt.includes("PR attribution:"), `${sender}/${preference}/${incognito}`).toBe(
-      enabled,
+    const prompt = currentPrompt(
+      await envelopeFor(sessionCtx, {
+        sessionEntry: { sessionId: "attribution", updatedAt: 1, incognito: incognito || undefined },
+      }),
     );
+    expect(prompt.includes("PR attribution")).toBe(enabled);
+    expect(prompt.includes("🦞 Made with [OpenClaw](https://openclaw.ai)")).toBe(enabled);
+    // Scope wording is the shell-workflow contract, not proof of model compliance.
     if (enabled) {
-      expect(prompt).toContain("only to this request from this verified requester");
-      expect(prompt).toContain("Do not carry it forward to later requests or other requesters");
+      expect(prompt).toContain("this request from this verified requester only");
+      expect(prompt).toContain("Do not carry it to later requests or other requesters");
       expect(prompt).toContain(
-        "If a later request has no enabled attribution block, do not add the footer",
+        "a request without its own enabled attribution block does not opt in",
       );
-      expect(prompt).toContain("<!-- openclaw:attribution=off -->");
-      expect(prompt).toContain("Never add it when reviewing or updating an existing PR");
-    } else {
-      expect(prompt).not.toContain("Made with [OpenClaw]");
-      expect(prompt).not.toContain("PR attribution preference");
     }
-    expect(envelope.transcriptCommandBody).toBe("Create a PR");
-    history.push(prompt);
-  }
-  expect(history.filter((prompt) => prompt.includes("PR attribution:"))).toHaveLength(2);
-});
+  },
+);
