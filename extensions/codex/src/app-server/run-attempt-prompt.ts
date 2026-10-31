@@ -449,9 +449,11 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
   };
   let parentLocalEgress = false;
   let inferenceInstructions: string | undefined;
-  // Diagnostics reuse the registered relay text, not a separately rebuilt subset.
+  // Observability view of OpenClaw-managed developer instructions for reports,
+  // trajectory, and size estimates; not the complete native/provider prompt.
+  // Reuse registered relay text so diagnostics include every relay component.
   // Hook context is already in that text, so only native policy precedes it.
-  // This projection must never feed native thread requests.
+  // This combined projection must never feed native thread requests.
   const buildRenderedCodexDeveloperInstructions = () =>
     inferenceInstructions !== undefined
       ? joinPresentSections(
