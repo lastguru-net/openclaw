@@ -1,4 +1,8 @@
-import { embeddedAgentLog, formatErrorMessage } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  embeddedAgentLog,
+  formatErrorMessage,
+  runAgentHarnessLlmInputHook,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import { CodexAccessProgramUnavailableError } from "./access-program.js";
 import {
   interruptCodexTurnAndWaitBestEffort,
@@ -330,6 +334,11 @@ export async function prepareCodexAttemptTurnRequest(
       assertCurrent: assertTurnCurrent,
     });
     codexModelCallDiagnostics.setRequestPayloadBytes(utf8JsonByteLength(turnStartParams));
+    runAgentHarnessLlmInputHook({
+      event: buildLlmInputEvent(),
+      ctx: context.hookContext,
+      hookRunner: context.hookRunner,
+    });
     recordCodexTrajectoryContext(resources.trajectoryRecorder, {
       attempt: params,
       developerInstructions: joinPresentSections(
@@ -470,5 +479,5 @@ export async function prepareCodexAttemptTurnRequest(
       ? { harnessId: params.runtimePlan.observability.harnessId }
       : {}),
   });
-  return { codexModelCallDiagnostics, startCodexTurn, buildLlmInputEvent, buildLlmOutputEvent };
+  return { codexModelCallDiagnostics, startCodexTurn, buildLlmOutputEvent };
 }
