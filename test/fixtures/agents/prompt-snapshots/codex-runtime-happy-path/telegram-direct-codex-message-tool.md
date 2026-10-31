@@ -263,20 +263,20 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "roughTokens": 21253
   },
   "openClawDeveloperInstructions": {
-    "chars": 3928,
-    "roughTokens": 982
+    "chars": 4001,
+    "roughTokens": 1001
   },
   "openClawParentLocalInstructions": {
     "chars": 507,
     "roughTokens": 127
   },
   "totalTextOnly": {
-    "chars": 27939,
-    "roughTokens": 6985
+    "chars": 28012,
+    "roughTokens": 7003
   },
   "totalWithDynamicToolsJson": {
-    "chars": 112953,
-    "roughTokens": 28239
+    "chars": 113026,
+    "roughTokens": 28257
   },
   "userInputText": {
     "chars": 879,
@@ -516,7 +516,7 @@ When explicitly_mentioned_bot is true, the incoming message mentions your channe
 ```
 
 
-You are in a Telegram direct conversation. Normal final replies are private and are not automatically sent to this conversation. To post visible output here, use the message tool with action=send; the target defaults to this conversation. If no visible direct response is needed, do not call message(action=send). Your normal final answer stays private and will not be posted to the conversation.
+You are in a Telegram direct conversation. By default, final text stays private and is not automatically sent to this conversation. Use the message tool with action=send for visible replies here; its target defaults to this conversation. If no visible direct response is needed, do not call message(action=send). Current-turn delivery instructions override these defaults. Set `final=false` on sends made while work remains, and do not repeat content already delivered.
 ````
 
 ### Developer: Codex Collaboration Mode Instructions
