@@ -274,27 +274,25 @@ export async function prepareCodexAttemptTurnRequest(
           }
         : undefined;
     if (inferenceRoute) {
-      if (!usesSupervisionConnection) {
-        prompt.setParentLocalEgress();
-      }
       resourceState.releaseInferenceContext?.();
       const inferenceThread = resourceState.thread;
+      const inferenceInstructions = joinPresentSections(
+        usesSupervisionConnection
+          ? undefined
+          : (buildCodexParentLocalInstructions(runtimeParams, {
+              personaInstructions: workspaceBootstrapContext.personaInstructions,
+              skillsInstructions: context.skillsInstructions,
+              memoryInstructions: workspaceBootstrapContext.memoryInstructions,
+            }) ?? undefined),
+        turnState.promptBuild.turnDeveloperInstructions,
+        buildCodexConversationTurnInstructions(
+          runtimeParams,
+          attemptTools.toolBridge.availableSpecs,
+        ),
+      );
       const registration = await inferenceRoute.context.register({
         threadId: resourceState.thread.threadId,
-        text: joinPresentSections(
-          usesSupervisionConnection
-            ? undefined
-            : (buildCodexParentLocalInstructions(runtimeParams, {
-                personaInstructions: workspaceBootstrapContext.personaInstructions,
-                skillsInstructions: context.skillsInstructions,
-                memoryInstructions: workspaceBootstrapContext.memoryInstructions,
-              }) ?? undefined),
-          turnState.promptBuild.turnDeveloperInstructions,
-          buildCodexConversationTurnInstructions(
-            runtimeParams,
-            attemptTools.toolBridge.availableSpecs,
-          ),
-        ),
+        text: inferenceInstructions,
         signal: runAbortController.signal,
         assertCurrent: () => {
           params.hostCapabilities.assertActive();
@@ -310,6 +308,7 @@ export async function prepareCodexAttemptTurnRequest(
         },
       });
       resourceState.releaseInferenceContext = registration.release;
+      prompt.setInferenceInstructions(inferenceInstructions);
       turnStartParams.responsesapiClientMetadata = {
         ...turnStartParams.responsesapiClientMetadata,
         [CODEX_INFERENCE_GENERATION_KEY]: registration.generation,
