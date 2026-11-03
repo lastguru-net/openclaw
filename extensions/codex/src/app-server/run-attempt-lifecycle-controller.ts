@@ -150,9 +150,17 @@ export function createCodexAttemptLifecycleController(
         });
         return;
       }
+      const awaitNativeCompletion = deliveredFinal && !independentTerminalRelease;
       state.pendingTerminalDynamicToolRelease = undefined;
       independentTerminalRelease = undefined;
       modelResponse = undefined;
+      if (awaitNativeCompletion) {
+        state.currentTurnHadNonTerminalDynamicToolResult = false;
+        // A delivered reply is not native completion. Interrupting here persists
+        // a false user-cancellation marker; wait under the existing settlement bound.
+        turnRuntime.deadlines.beginSettlement(Date.now());
+        return;
+      }
       if (authored) {
         prompt.context.attemptTools.toolBridge.telemetry.messagingToolSourceReplyPayloads.push(
           ...authored.payloads,
@@ -226,9 +234,9 @@ export function createCodexAttemptLifecycleController(
       scheduleTerminalDynamicToolReleaseCheck();
     } else {
       state.currentTurnHadNonTerminalDynamicToolResult = true;
+      // Retire independent termination evidence only after classifying the whole batch.
       if (!state.pendingTerminalDynamicToolRelease?.response.finalSourceReplyDelivered) {
         state.pendingTerminalDynamicToolRelease = undefined;
-        independentTerminalRelease = undefined;
       }
     }
   };

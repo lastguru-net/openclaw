@@ -118,7 +118,14 @@ approvals, dynamic tools, and cancellation retain their independent deadlines.
 
 On receipt of the exact native terminal event, OpenClaw starts an absolute
 two-minute local-settlement budget before asynchronous transcript and media
-projection. Later notifications do not reset it. Presentation callbacks start
+projection. A confirmed final message-tool reply to the current conversation
+starts this budget earlier, once its tool responses, siblings, and active native
+items have settled, with no submitted steering superseding that reply.
+OpenClaw then waits for native completion
+instead of interrupting a successful reply. Codex may take another model step;
+redundant final text is suppressed. Expiry without native completion is a timeout,
+not success. Independent intentional yields retain their existing immediate release.
+Later notifications do not reset the settlement budget. Presentation callbacks start
 in order and join at settlement without blocking native notification processing.
 If the native turn completed successfully with a complete final answer, expiry
 preserves that answer as a degraded success. OpenClaw retires unfinished
