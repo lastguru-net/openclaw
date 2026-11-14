@@ -4,7 +4,9 @@ import type {
   ApprovalTerminalReason,
 } from "../../../packages/gateway-protocol/src/schema/approvals.js";
 import type { ImageContent } from "../../../packages/llm-core/src/types.js";
+import type { ToolOutcomeObserver } from "../tool-outcome-observation.js";
 import type { AnyAgentTool } from "../tools/common.js";
+import type { ComputerContextEpoch } from "../tools/computer-tool.js";
 
 export type AgentHarnessContextMedia = {
   text?: string;
@@ -108,6 +110,20 @@ export type AgentHarnessHostCapabilities = Readonly<{
         release: () => void;
       }>
     | undefined;
+  /** Opts in to capturing one prepared tool surface; call before foreground construction. */
+  prepareDelegatedToolHosts?: () => void;
+  /** Issues a separate tool owner using captured source policy, never replacement requester policy. */
+  createDelegatedToolHost?: (
+    request: Readonly<{
+      runId: string;
+      signal?: AbortSignal;
+    }>,
+  ) => Promise<
+    Readonly<{
+      capabilities: AgentHarnessDelegatedToolHostCapabilities;
+      close: () => Promise<void>;
+    }>
+  >;
   /** Reports one completed model call's output tokens to this admitted run's live total. */
   reportOutputTokens?: (outputTokens: number) => void;
   /** Adds native provenance only to this host's exact current admitted prompt. */
@@ -234,3 +250,19 @@ export type AgentHarnessHostCapabilities = Readonly<{
     signal?: AbortSignal;
   }) => Promise<AgentHarnessHostApprovalResult | undefined>;
 }>;
+
+/** Delegated construction always uses its captured options; an empty call is sufficient. */
+export type AgentHarnessDelegatedToolHostCapabilities = Omit<
+  AgentHarnessHostCapabilities,
+  "createToolSurfaceAsync"
+> &
+  Readonly<{
+    /** Native outcomes feed this child's sticky provenance state, not its parent's. */
+    observeToolOutcome: ToolOutcomeObserver;
+    /** Shared with the native result/context owner so only visible frames authorize coordinates. */
+    computerContextEpoch: ComputerContextEpoch;
+    createToolSurfaceAsync: (
+      options?: AgentHarnessToolSurfaceOptions,
+      bindingOptions?: AgentHarnessToolSurfaceBindingOptions,
+    ) => Promise<AnyAgentTool[]>;
+  }>;

@@ -66,6 +66,37 @@ hosted search rather than resolving requester policy after native source capture
 Side-question builders must forward the prepared policy unchanged, including its
 model reference and requester facts.
 
+### Delegated tool owners
+
+An opt-in native harness can call `hostCapabilities.prepareDelegatedToolHosts()`
+before constructing its ordinary tool surface, then
+`createDelegatedToolHost({ runId, signal })` while that foreground owner is live.
+The new run ID identifies an admitted child assignment or accepted input; it is
+not permission to choose a different requester. The harness must independently
+verify native lineage and limit which tools it exposes.
+
+Core retains the original source and memory audience, captures host-owned policy
+and caller facts, and constructs fresh child-bound tools. It does not retain
+foreground reply callbacks or lend the foreground executor to a child. The child
+keeps a separate sticky taint state, initialized from the source at issuance;
+native network results must also reach its `observeToolOutcome` observer.
+Existing Gateway generation and source checks remain authoritative after the
+foreground turn ends. Worker-turn and settled-receipt authorities cannot be
+transferred this way.
+
+The returned `computerContextEpoch` is child-owned mutable context state. Share
+this exact object with the native result/context projector when exposing
+`computer`. Invalidate it when the model no longer receives the screenshot that
+armed its coordinates: compaction, replaced or removed image output, or result
+post-processing failure. Never reuse the parent's epoch.
+
+The returned capability supports tool construction, binding and approval, not
+recursive delegation or parent conversation control. Call its `close()` when
+the admitted child/input ends; closure revokes execution and releases retained
+resources. This capability is separate from native model authority and does not
+claim enforcement of the child's native sandbox. Hosts that do not expose it
+cannot execute this delegated surface.
+
 ### Prepared local execution environment
 
 `hostCapabilities.preparedEnvironment()` returns captured identity and execution facts for the admitted attempt. Its optional `localGitConfigParameters` is an append fragment, not a replacement for `GIT_CONFIG_PARAMETERS`. Apply it only to local child processes owned by the harness. Preserve unrelated inherited or explicitly configured Git parameters and the runtime's environment filters; an explicit native value, including an empty string, replaces its inherited base before the host fragment is appended. Keep inherited credentials in the child environment rather than copying them into tool request overrides or persisted native thread configuration. Remote, sandbox, and externally started peers retain their existing environment owners.

@@ -17,6 +17,11 @@ type Refresh = {
 
 const refreshScope = new AsyncContext<Refresh>(Symbol.for("openclaw.agentPluginRuntimeRefresh"));
 
+/** Independent tool owners do not resume the foreground run's refresh continuation. */
+export function runOutsideAgentPluginRuntimeRefresh<T>(run: () => T): T {
+  return refreshScope.exit(run);
+}
+
 /** Captured host control survives plugin callbacks without becoming run authority. */
 export function captureAgentPluginRuntimeRefresh() {
   const owner = refreshScope.getStore();
