@@ -1,13 +1,12 @@
 import {
   embeddedAgentLog,
   isHostScopedAgentToolActive,
-  materializeRequesterScopedMcpToolsForHarnessRun,
+  normalizeAgentRuntimeTools,
+  type materializeRequesterScopedMcpToolsForHarnessRun,
   type EmbeddedRunAttemptParams,
-  type ExecApprovalDecision,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
   captureFinalCodexCronCreatorToolAllowlist,
-  formatMcpCodexApprovalRemedy,
   materializeStaticMcpToolsForHarnessRun,
 } from "openclaw/plugin-sdk/codex-mcp-projection";
 import { isIncognitoSessionKey } from "openclaw/plugin-sdk/session-key-runtime";
@@ -28,15 +27,16 @@ import {
   projectCodexExecutableDynamicTools,
 } from "./dynamic-tools.js";
 import { buildCodexHookRequester } from "./hook-requester.js";
+import { prepareCodexNativeChildToolFactory } from "./native-child-tools.js";
 import type { NativePendingChild } from "./native-subagent-monitor-types.js";
 import {
   hasCodexNativeToolCatalog,
   loadCodexAttemptNativeToolCatalog,
 } from "./native-tool-catalog.js";
 import { CodexCompactionPlanState } from "./plan-compaction-state.js";
-import { requestPluginApprovalOutcome } from "./plugin-approval-roundtrip.js";
 import { isCodexResponsesOAuth } from "./responses-oauth.js";
 import { emitCodexAppServerEvent, runCodexCleanupStep } from "./run-attempt-lifecycle.js";
+import { createCodexOwnedMcpMaterializer } from "./run-attempt-mcp-tools.js";
 import type { CodexAttemptRuntime } from "./run-attempt-runtime.js";
 import { resolveCodexDynamicToolDirectNames } from "./run-attempt-tools.js";
 import {
@@ -315,6 +315,12 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
       }
     })());
   try {
+    if (pluginConfig.nativeChildTools?.allow?.length) {
+      if (!params.hostCapabilities.prepareDelegatedToolHosts) {
+        throw new Error("Configured native child tools require host-owned tool capture.");
+      }
+      params.hostCapabilities.prepareDelegatedToolHosts();
+    }
     const tools = await buildDynamicTools({
       ...commonToolParams,
       registerRunCleanup: (cleanup) => runCleanups.push(cleanup),
@@ -392,32 +398,6 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
     const turnSourceChannel = params.messageChannel ?? params.messageProvider;
     const turnSourceTo = params.currentMessagingTarget ?? params.currentChannelId;
     const requester = buildCodexHookRequester(params);
-    type HarnessMcpInteractiveApproval = NonNullable<
-      Parameters<
-        typeof materializeRequesterScopedMcpToolsForHarnessRun
-      >[0]["requestInteractiveCodexApproval"]
-    >;
-    const requestInteractiveMcpApproval = async (
-      approval: Parameters<HarnessMcpInteractiveApproval>[0],
-      allowedDecisions: ExecApprovalDecision[],
-    ) => {
-      const outcome = await requestPluginApprovalOutcome({
-        hostCapabilities: params.hostCapabilities,
-        signal: approval.signal,
-        title: `Run MCP tool ${approval.serverName}/${approval.toolName}`,
-        description: `Codex approval mode "${approval.mode}" requires an operator decision before this MCP tool runs. ${formatMcpCodexApprovalRemedy(approval.serverName)}`,
-        allowedDecisions,
-        toolName: approval.safeToolName,
-        toolCallId: approval.toolCallId,
-        mcpTool: { server: approval.serverName, tool: approval.toolName },
-        isMcpToolApprovalActive: approval.isActive,
-      });
-      if (outcome !== "approved-once" && outcome !== "approved-session") {
-        throw new Error(
-          `${approval.serverName}/${approval.toolName}: interactive Codex approval (${approval.mode}) was not granted: ${outcome}`,
-        );
-      }
-    };
     const mcpOptions = {
       workspaceDir: effectiveWorkspace,
       agentDir: policyContext.agentDir,
@@ -431,48 +411,33 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
       policyContext,
       warn: (message: string) => embeddedAgentLog.warn(message),
     };
-    configuredMcp =
-      params.requireWorkspaceOnly !== true && configuredMcpSurface
-        ? await materializeStaticMcpToolsForHarnessRun({
-            ...mcpOptions,
-            sessionId: params.sessionId,
-            sessionKey: params.sessionKey,
-            agentId: sessionAgentId,
-            reservedToolNames,
-            projectedMcpServers: bundleMcpThreadConfig.configPatch?.mcp_servers,
-            ...(configuredMcpSurface === "transient"
-              ? {
-                  requestInteractiveCodexApproval: (approval) =>
-                    requestInteractiveMcpApproval(
-                      approval,
-                      approval.mode === "prompt"
-                        ? ["allow-once", "deny"]
-                        : ["allow-once", "allow-always", "deny"],
-                    ),
-                }
-              : {}),
-          })
-        : undefined;
-    // Requester-scoped MCP: dynamic tools on a shared thread (never harness-native MCP).
-    // Specs come from the session advertised-catalog cache so fingerprints stay stable.
-    scopedMcpTools =
-      authenticatedScheduledMode || params.requireWorkspaceOnly === true
-        ? undefined
-        : await materializeRequesterScopedMcpToolsForHarnessRun({
-            ...mcpOptions,
-            sessionId: params.sessionId,
-            sessionKey: params.sessionKey,
-            // Requester servers cannot consume stored grants; Allow Always would re-prompt.
-            requestInteractiveCodexApproval: (approval) =>
-              requestInteractiveMcpApproval(approval, ["allow-once", "deny"]),
-            requesterSenderId: params.senderId,
-            agentAccountId: params.agentAccountId,
-            messageChannel: params.messageChannel ?? params.messageProvider,
-            reservedToolNames: [
-              ...reservedToolNames,
-              ...(configuredMcp?.tools.map((tool) => tool.name) ?? []),
-            ],
-          });
+    const materializeScopedMcp = createCodexOwnedMcpMaterializer({
+      configured:
+        params.requireWorkspaceOnly !== true && configuredMcpSurface
+          ? {
+              ...mcpOptions,
+              sessionId: params.sessionId,
+              sessionKey: params.sessionKey,
+              agentId: sessionAgentId,
+              reservedToolNames,
+              projectedMcpServers: bundleMcpThreadConfig.configPatch?.mcp_servers,
+            }
+          : undefined,
+      requesterScoped:
+        authenticatedScheduledMode || params.requireWorkspaceOnly === true
+          ? undefined
+          : {
+              ...mcpOptions,
+              sessionId: params.sessionId,
+              sessionKey: params.sessionKey,
+              requesterSenderId: params.senderId,
+              agentAccountId: params.agentAccountId,
+              messageChannel: params.messageChannel ?? params.messageProvider,
+              reservedToolNames,
+            },
+      interactiveConfiguredApproval: configuredMcpSurface === "transient",
+    });
+    ({ configured: configuredMcp, scoped: scopedMcpTools } = await materializeScopedMcp(params));
     // Restricted dynamic-tool profiles (private QA, exclusion lists) gate scoped
     // MCP tools exactly like every other dynamic tool. Filter both lists with the
     // same rule so execution and advertised specs stay name-aligned.
@@ -542,6 +507,66 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
         isHostScopedAgentToolActive("openclaw"),
       ),
       hookContext,
+    });
+    const childNormalization = {
+      runtimePlan: runtimeParams.runtimePlan,
+      provider: params.provider,
+      config: params.config,
+      workspaceDir: effectiveWorkspace,
+      modelId: params.modelId,
+      modelApi: params.model.api,
+      model: params.model,
+    };
+    const nativeChildTools = prepareCodexNativeChildToolFactory({
+      policy: pluginConfig.nativeChildTools,
+      hostCapabilities: params.hostCapabilities,
+      parentBridge: toolBridge,
+      registeredTools: [...toolsWithScopedMcp, ...registeredWithScopedMcp],
+      executionPolicy: runtime.nativeExecutionPolicy,
+      cwd: effectiveCwd ?? effectiveWorkspace,
+      hookContext: {
+        agentId: sessionAgentId,
+        config: params.config,
+        sessionId: params.sessionId,
+        sessionKey: contextSessionKey,
+        channelId: hookChannelId,
+        contextWindowTokens: params.contextTokenBudget ?? params.model.contextWindow,
+        requester,
+        turnSourceChannel,
+        turnSourceTo,
+        turnSourceAccountId: params.agentAccountId,
+        turnSourceThreadId: params.currentThreadTs,
+        trigger: params.trigger,
+        approvalReviewerDeviceId: params.approvalReviewerDeviceId,
+      },
+      normalizeTools: (childTools) =>
+        normalizeAgentRuntimeTools({ tools: childTools, ...childNormalization }),
+      materializeMcpTools: async (owner) => {
+        const materialized = await materializeScopedMcp(owner);
+        return {
+          tools: filterCodexDynamicTools(
+            [...(materialized.configured?.tools ?? []), ...(materialized.scoped?.tools ?? [])],
+            pluginConfig,
+          ),
+          dispose: async () => {
+            const results = await Promise.allSettled([
+              materialized.configured?.dispose(),
+              materialized.scoped?.dispose(),
+            ]);
+            const errors = results.flatMap((result) =>
+              result.status === "rejected" ? [result.reason] : [],
+            );
+            if (errors.length) {
+              throw new AggregateError(errors, "Native child MCP cleanup failed");
+            }
+          },
+        };
+      },
+    });
+    embeddedAgentLog.debug("codex native-child tool policy", {
+      runId: params.runId,
+      sessionId: params.sessionId,
+      ...nativeChildTools.catalog,
     });
     const captureCronCreatorToolAllowlist = async () => {
       await captureFinalCodexCronCreatorToolAllowlist(
@@ -647,6 +672,7 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
     }
     return {
       tools: toolsWithScopedMcp,
+      nativeChildTools,
       requireExplicitMessageTarget,
       configuredMcp,
       disposeTools,

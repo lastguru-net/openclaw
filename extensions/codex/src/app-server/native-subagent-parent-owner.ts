@@ -41,6 +41,7 @@ export type NativeParentRegistration = Pick<
     | "requesterTurnRunId"
     | "requestCustody"
     | "cancelChildProcesses"
+    | "createChildTools"
     | "claimDirectChild"
     | "rejectPendingDirectChild"
     | "onDirectChildAccepted"
@@ -71,6 +72,7 @@ type ParentDependencies = {
   drainAdmissions: (state: ParentState, owner: ParentOwner, turnId: string) => void;
   clearAdmissions: () => void;
   prune: (state: ParentState) => void;
+  releaseChildTools: (owner: ParentOwner) => void;
   pendingChildren: (state: ParentState) => NativePendingChild[];
   interruptModelExecution?: (threadId: string, turnId: string) => void;
 };
@@ -163,6 +165,10 @@ export async function registerNativeSubagentParent(
   const ownerKey = Symbol("codex-native-subagent-owner");
   const registrationSettled = createDeferred<void>();
   let owner: ParentOwner = {
+    createChildTools: params.createChildTools,
+    childToolsLifetime: params.createChildTools
+      ? { retainedAfterCompletion: false, revoked: false }
+      : undefined,
     requestCustody: params.requestCustody,
     cancelChildProcesses: params.cancelChildProcesses,
     requesterAgentId: params.agentId,
@@ -281,6 +287,14 @@ export async function registerNativeSubagentParent(
   let settlement: Promise<void> | undefined;
   return {
     ready,
+    authorizeChildToolsAfterSuccessfulCompletion: () => {
+      if (!registered || !isCurrent() || registeredState.owners.get(ownerKey) !== owner) {
+        throw new Error("Codex native child tool registration is no longer current");
+      }
+      if (owner.childToolsLifetime && !owner.childToolsLifetime.revoked) {
+        owner.childToolsLifetime.retainedAfterCompletion = true;
+      }
+    },
     observeSubmissionAcknowledgement: async (receipt, assertCurrent) => {
       assertCurrent();
       if (!registered || !isCurrent() || registeredState.owners.get(ownerKey) !== owner) {
@@ -311,6 +325,7 @@ export async function registerNativeSubagentParent(
         return;
       }
       if (current.turnId && current.turnId !== turnId) {
+        const previousOwner = current;
         current = {
           ...current,
           modelMapping: undefined,
@@ -320,6 +335,7 @@ export async function registerNativeSubagentParent(
             : undefined,
           nativeReviewRequirement: undefined,
         };
+        previousOwner.createChildTools = undefined;
         owner = current;
         registeredState.owners.set(ownerKey, current);
       }
@@ -364,6 +380,11 @@ export async function registerNativeSubagentParent(
         return settlement ?? Promise.resolve();
       }
       registered = false;
+      owner.createChildTools = undefined;
+      if (owner.childToolsLifetime && !owner.childToolsLifetime.retainedAfterCompletion) {
+        owner.childToolsLifetime.revoked = true;
+        dependencies.releaseChildTools(owner);
+      }
       releaseRootModelBinding();
       releaseCompletionCustody(owner);
       owner.nativeReviewRequirement = undefined;

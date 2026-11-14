@@ -1,5 +1,6 @@
 import type { AgentHarnessCompletionCustody } from "openclaw/plugin-sdk/agent-harness-completion";
 import { emitAgentEvent } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { releaseNativeChildTools } from "./native-child-tool-custody.js";
 import {
   MAX_PENDING_CHILD_ADMISSION_EVIDENCE,
   admitNativeChildModelExecution,
@@ -42,12 +43,15 @@ export class CodexNativeSubagentAdmissionCustody {
     return this.pending;
   }
 
-  buffer(turnIdInput: string | undefined, evidence: NativeChildAdmissionEvidence): void {
+  buffer(
+    turnIdInput: string | undefined,
+    evidence: NativeChildAdmissionEvidence,
+  ): NativeChildAdmissionEvidence | undefined {
     const turnId = turnIdInput?.trim();
     const requiresUnboundOwner =
       evidence.kind !== "interaction" || (!evidence.owner && !evidence.modelOwner);
     if (!turnId || (requiresUnboundOwner && !this.hasUnboundParentOwner(evidence.parentThreadId))) {
-      return;
+      return undefined;
     }
     const pending = this.pending.get(turnId) ?? [];
     if (evidence.kind === "interaction" && !evidence.nativeTurnId) {
@@ -72,25 +76,28 @@ export class CodexNativeSubagentAdmissionCustody {
         evidence.nativeTurnId = nativeTurn[0];
       }
     }
+    const existing = pending.find(
+      (candidate) =>
+        candidate.parentThreadId === evidence.parentThreadId &&
+        candidate.kind === evidence.kind &&
+        candidate.childThreadId === evidence.childThreadId &&
+        candidate.agentPath === evidence.agentPath &&
+        (candidate.kind === "spawn" ||
+          evidence.kind === "spawn" ||
+          (candidate.modelSourceTurnId === evidence.modelSourceTurnId &&
+            ((candidate.nativeTurnId !== undefined &&
+              candidate.nativeTurnId === evidence.nativeTurnId) ||
+              (evidence.itemId !== undefined && candidate.itemId === evidence.itemId)))),
+    );
+    if (existing) {
+      return existing;
+    }
     if (
-      pending.some(
-        (candidate) =>
-          candidate.parentThreadId === evidence.parentThreadId &&
-          candidate.kind === evidence.kind &&
-          candidate.childThreadId === evidence.childThreadId &&
-          candidate.agentPath === evidence.agentPath &&
-          (candidate.kind === "spawn" ||
-            evidence.kind === "spawn" ||
-            (candidate.modelSourceTurnId === evidence.modelSourceTurnId &&
-              ((candidate.nativeTurnId !== undefined &&
-                candidate.nativeTurnId === evidence.nativeTurnId) ||
-                (evidence.itemId !== undefined && candidate.itemId === evidence.itemId)))),
-      ) ||
-      (requiresUnboundOwner &&
-        [...this.pending.values()].reduce((count, entries) => count + entries.length, 0) >=
-          MAX_PENDING_CHILD_ADMISSION_EVIDENCE)
+      requiresUnboundOwner &&
+      [...this.pending.values()].reduce((count, entries) => count + entries.length, 0) >=
+        MAX_PENDING_CHILD_ADMISSION_EVIDENCE
     ) {
-      return;
+      return undefined;
     }
     try {
       if (evidence.kind === "interaction") {
@@ -121,6 +128,7 @@ export class CodexNativeSubagentAdmissionCustody {
     }
     pending.push(evidence);
     this.pending.set(turnId, pending);
+    return evidence;
   }
 
   hasUnboundParentOwner(parentThreadId: string): boolean {
@@ -132,6 +140,7 @@ export class CodexNativeSubagentAdmissionCustody {
     const previous = this.pending.get(turnId) ?? [];
     for (const evidence of previous) {
       if (evidence.kind === "interaction" && !remaining.includes(evidence)) {
+        releaseNativeChildTools(evidence);
         releaseCompletionCustody(evidence);
       }
     }
@@ -160,8 +169,16 @@ export class CodexNativeSubagentAdmissionCustody {
         return false;
       }
       const state = this.dependencies.parentStates.get(evidence.parentThreadId);
-      if (evidence.kind === "interaction" && (evidence.owner || evidence.modelSource)) {
+      if (
+        evidence.kind === "interaction" &&
+        (evidence.owner || evidence.modelSource || evidence.childTools)
+      ) {
         return Boolean(
+          (evidence.childTools &&
+            evidence.childToolsOwner?.childToolsLifetime?.retainedAfterCompletion &&
+            !evidence.childToolsOwner.childToolsLifetime.revoked &&
+            state &&
+            !isRetired(state)) ||
           (evidence.modelSource && state && !isRetired(state)) ||
           (state && evidence.owner && [...state.owners.values()].includes(evidence.owner)),
         );

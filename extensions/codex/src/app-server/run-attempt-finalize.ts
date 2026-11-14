@@ -715,8 +715,11 @@ export async function finalizeCodexAttempt(
         yielded: finalPromptError ? undefined : toolState.yieldDetected,
       }),
     });
-    if (turnSucceeded && toolState.yieldDetected && !runAbortController.signal.aborted) {
-      resourceState.nativeHookRelay?.authorizeRetentionAfterSuccessfulYield();
+    if (turnSucceeded && !runAbortController.signal.aborted) {
+      resourceState.nativeSubagentMonitor?.authorizeChildToolsAfterSuccessfulCompletion();
+      if (toolState.yieldDetected) {
+        resourceState.nativeHookRelay?.authorizeRetentionAfterSuccessfulYield();
+      }
     }
     if (projectionDrained && terminalState.settledTurnStatus === "failed") {
       retireCodexTransportAfterFailure(resourceState, finalPromptError);

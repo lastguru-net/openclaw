@@ -21,6 +21,7 @@ import type {
   CodexNativeSubagentSubmissionAcknowledgement,
   CodexNativeSubagentSubmissionStore,
 } from "./native-subagent-submission.js";
+import type { CodexDynamicToolCallParams, CodexDynamicToolCallResponse } from "./protocol.js";
 
 type DescendantCancellation = NonNullable<AgentHarness["withDescendantCancellation"]>;
 type NativeRequestCustody = NonNullable<
@@ -35,7 +36,7 @@ export type NativeSubagentMonitorRuntime = {
 
 export type NativeSubagentMonitorClient = Pick<
   CodexAppServerClient,
-  "request" | "addNotificationHandler" | "addCloseHandler"
+  "request" | "addRequestHandler" | "addNotificationHandler" | "addCloseHandler"
 >;
 
 export type NativeModelSource = NonNullable<
@@ -92,7 +93,32 @@ export type NativeModelToolInputRequest = Omit<NativeModelInputRequest, "targetT
   assertCurrent: () => void;
 };
 
+export type NativeChildToolOutcome = Parameters<
+  NonNullable<EmbeddedRunAttemptParamsV2["onToolOutcome"]>
+>[0];
+
+export type NativeChildToolExecutor = {
+  observeContextCompaction(itemId: string): void;
+  observeToolOutcome(observation: NativeChildToolOutcome): void;
+  handleToolCall(
+    call: CodexDynamicToolCallParams,
+    signal: AbortSignal,
+    setExecutionTimeoutMs?: (ms: number) => void,
+  ): Promise<CodexDynamicToolCallResponse>;
+  dispose(): void;
+};
+
 export type ParentOwner = {
+  createChildTools?: (request: {
+    runId: string;
+    threadId: string;
+    assertCurrent: () => void;
+  }) => NativeChildToolExecutor;
+  // bindTurn copies owners; all copies share this registration's tool lifetime.
+  childToolsLifetime?: {
+    retainedAfterCompletion: boolean;
+    revoked: boolean;
+  };
   requestCustody?: NativeRequestCustody;
   cancelChildProcesses?: (
     threadId: string,
@@ -135,6 +161,7 @@ export type NativePendingChild = {
 
 export type ParentRegistrationHandle = {
   ready: Promise<void>;
+  authorizeChildToolsAfterSuccessfulCompletion(): void;
   observeSubmissionAcknowledgement: (
     receipt: CodexNativeSubagentSubmissionAcknowledgement,
     assertCurrent: () => void,
@@ -158,6 +185,9 @@ export type NativeChildAdmissionEvidence = DirectSpawnEvidence &
         kind: "interaction";
         nativeTurnId?: string;
         itemId?: string;
+        childTools?: NativeChildToolExecutor;
+        childToolsOwner?: ParentOwner;
+        childToolsCaptured?: true;
         owner?: ParentOwner;
         admittedOwner?: ParentOwner;
         modelSource?: NativeModelSourceCustody;
@@ -224,6 +254,9 @@ export type NativeTurnObservation = {
 };
 
 export type ChildState = NativeSubagentAssignment & {
+  childTools?: NativeChildToolExecutor;
+  childToolsOwner?: ParentOwner;
+  nativeToolOutcome?: NativeChildToolOutcome;
   requestCustody?: NativeRequestCustody;
   // Interruption releases execution admission, but explicit Stop still owes process cleanup.
   cancelProcesses?: ParentOwner["cancelChildProcesses"];
@@ -271,6 +304,9 @@ export type KnownChild = {
   observedTurns: Map<string, { awaitingInteraction?: true; state?: NativeTurnState }>;
   pendingTurns: Array<
     NativeTurnObservation & {
+      childTools?: NativeChildToolExecutor;
+      childToolsOwner?: ParentOwner;
+      nativeToolOutcome?: NativeChildToolOutcome;
       admittedOwner?: ParentOwner;
       admittedSubmission?: CodexNativeSubagentSubmission;
       modelSource?: NativeModelExecution;

@@ -1,5 +1,5 @@
 import { readStringField as readItemString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { CodexThreadItem } from "./protocol.js";
+import { isJsonObject, type CodexThreadItem } from "./protocol.js";
 
 export type AssistantCompletion = Pick<CodexThreadItem, "type" | "id" | "text"> & {
   phase?: unknown;
@@ -101,6 +101,36 @@ export function auditNativeToolUnfinishedStatus(
 
 export function isNonSuccessItemStatus(status: ReturnType<typeof itemStatus>): boolean {
   return status === "failed" || status === "blocked";
+}
+
+/** Result provenance is independent of success: server error content is still untrusted. */
+export function nativeToolResultContentSource(
+  item: CodexThreadItem | undefined,
+): "network" | undefined {
+  if (!item) {
+    return undefined;
+  }
+  if (item.type === "mcpToolCall") {
+    const result = isJsonObject(item.result) ? item.result : undefined;
+    return result &&
+      ((Array.isArray(result.content) && result.content.length > 0) ||
+        result.structuredContent != null ||
+        result._meta != null)
+      ? "network"
+      : undefined;
+  }
+  if (item.type === "webSearch") {
+    if (Array.isArray(item.results) && item.results.length > 0) {
+      return "network";
+    }
+    // Typed native web-search completions need not expose their result body.
+    // Explicit pre-execution rejection/failure without content is not a retrieval.
+    if (["blocked", "denied", "declined", "cancelled"].includes(item.status ?? "")) {
+      return undefined;
+    }
+    return itemStatus(item) === "completed" ? "network" : undefined;
+  }
+  return undefined;
 }
 
 export function itemName(item: CodexThreadItem): string | undefined {

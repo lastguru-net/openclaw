@@ -188,6 +188,7 @@ export function createClient() {
     },
     addNotificationHandler: fixture.client.addNotificationHandler.bind(fixture.client),
     addRequestHandler: fixture.client.addRequestHandler.bind(fixture.client),
+    handleServerRequest: fixture.handleServerRequest,
     addCloseHandler: fixture.client.addCloseHandler.bind(fixture.client),
     getTransportPid: fixture.client.getTransportPid.bind(fixture.client),
     notify: (notification: CodexServerNotification) => fixture.notify(notification),

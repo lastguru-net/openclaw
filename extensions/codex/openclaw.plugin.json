@@ -141,7 +141,7 @@
       "id": "dynamic-tools",
       "title": "Dynamic tools",
       "order": 10,
-      "properties": ["codexDynamicToolsLoading", "codexDynamicToolsExclude"]
+      "properties": ["codexDynamicToolsLoading", "codexDynamicToolsExclude", "nativeChildTools"]
     },
     {
       "id": "native-sessions",
@@ -187,6 +187,22 @@
         "type": "array",
         "items": { "type": "string" },
         "default": []
+      },
+      "nativeChildTools": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allow": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "default": []
+          },
+          "deny": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "default": []
+          }
+        }
       },
       "sessionCatalog": {
         "type": "object",
@@ -550,6 +566,21 @@
     "codexDynamicToolsExclude": {
       "label": "Dynamic Tool Excludes",
       "help": "Additional OpenClaw dynamic tool names to omit from Codex app-server turns.",
+      "advanced": true
+    },
+    "nativeChildTools": {
+      "label": "Native Child Host Tools",
+      "help": "Opt-in delegation of selected OpenClaw host tools to direct native Codex children. Empty allow denies all. Calls use the owning OpenClaw session's host authority, not the child's native sandbox. Requires a Gateway restart after affected work ends.",
+      "advanced": true
+    },
+    "nativeChildTools.allow": {
+      "label": "Allowed Child Host Tools",
+      "help": "Canonical tool names or * patterns. Parent policy still applies. Wildcards also grant future matching eligible tools; names do not establish read-only behavior. Source-bound session controls remain unsupported.",
+      "advanced": true
+    },
+    "nativeChildTools.deny": {
+      "label": "Denied Child Host Tools",
+      "help": "Canonical tool names or * patterns excluded from child host delegation. Deny overrides allow.",
       "advanced": true
     },
     "discovery": {
