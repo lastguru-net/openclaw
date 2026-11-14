@@ -15,7 +15,9 @@ export const fakeSessionOwner = {
   publications: new Map<string, Promise<void>>(),
   workerReads: [] as string[],
   activeLeases: 0,
+  epoch: 0,
   reset() {
+    this.epoch += 1;
     this.rows.clear();
     this.pendingKeys.clear();
     this.publications.clear();
@@ -52,15 +54,23 @@ export const fakeSessionGenerationModule = {
   }) => {
     assertGeneration(input);
     let active = true;
+    const epoch = fakeSessionOwner.epoch;
+    const assertOwnerCurrent = () => {
+      if (epoch !== fakeSessionOwner.epoch) {
+        throw new Error("Session generation fixture owner has ended");
+      }
+    };
     fakeSessionOwner.activeLeases += 1;
     return {
       assertCurrent: () => {
+        assertOwnerCurrent();
         if (!active || fakeSessionOwner.pendingKeys.has(input.sessionKey)) {
           throw new Error("Session delivery generation is unavailable");
         }
         assertGeneration(input);
       },
       prepareRead: () => {
+        assertOwnerCurrent();
         if (!active) {
           throw new Error("Session delivery generation is unavailable");
         }
@@ -69,7 +79,11 @@ export const fakeSessionGenerationModule = {
       release: () => {
         if (active) {
           active = false;
-          fakeSessionOwner.activeLeases -= 1;
+          // GC from a prior test can release an old grant after reset. It
+          // must not subtract that retired owner's lease from the current one.
+          if (epoch === fakeSessionOwner.epoch) {
+            fakeSessionOwner.activeLeases -= 1;
+          }
         }
       },
     };

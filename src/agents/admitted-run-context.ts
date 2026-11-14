@@ -28,8 +28,10 @@ import {
 import { scopeOperatorAccessDecisions } from "../infra/operator-access-decision.js";
 import { isOperatorAuthorityUnavailable } from "../infra/operator-authority-error.js";
 import { prepareGatewayContextBindingOwner } from "../plugins/runtime/gateway-context-binding-owner.js";
+import { getGatewayContextResolver } from "../plugins/runtime/gateway-context-binding.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { freezeJsonSnapshot } from "../shared/immutable-data.js";
+import { prepareRetainedDelegatedRunSource } from "./admitted-run-delegated-source.js";
 import type { AdmittedRunOperatorAuthority } from "./admitted-run-operator-authority.types.js";
 import {
   createOperationalRunInstanceRef,
@@ -291,7 +293,7 @@ export type PreparedAgentRunAdmission = Readonly<{
 type DelegatedAuthorityLease = {
   authority: AgentRunDelegatedAuthority;
   foregroundClosed: boolean;
-  assertSourceCurrent?: () => void;
+  assertSourceCurrent?: SessionSourceAssertion;
   operatorAuthority?: AdmittedRunOperatorAuthority;
 };
 
@@ -325,7 +327,7 @@ export function runWithPreparedRunSourceScope<T>(
 
 function bindAdmittedRunDelegatedAuthority(
   context: AdmittedRunContext,
-  assertSourceCurrent?: () => void,
+  assertSourceCurrent?: SessionSourceAssertion,
   operatorAuthority?: AdmittedRunOperatorAuthority,
 ): void {
   const authority = claimAgentRunDelegatedAuthority(
@@ -494,6 +496,38 @@ export function retainAdmittedRunBeforeToolCallRecovery(
       }
     },
   };
+}
+
+/** Transfers original-source custody without extending the foreground execution claim. */
+export function prepareDelegatedAgentRunAdmission(params: {
+  cfg: OpenClawConfig;
+  parent: AdmittedRunContext;
+  runId: string;
+  agentId: string;
+  signal?: AbortSignal;
+}): PreparedAgentRunAdmission {
+  const lease = delegatedAuthorityLeases.get(params.parent);
+  if (
+    !lease ||
+    getAdmittedRunDelegatedAuthority(params.parent) !== lease.authority ||
+    !params.runId.trim() ||
+    params.runId === params.parent.operationalRunInstance.runId
+  ) {
+    throw new Error("delegated tool host requires a live, distinct admitted owner");
+  }
+  return prepareRetainedDelegatedRunSource(
+    {
+      cfg: params.cfg,
+      runId: params.runId,
+      agentId: params.agentId,
+      source: lease.assertSourceCurrent,
+      operatorAuthority: lease.operatorAuthority,
+      lifecycleGeneration: lease.authority.lifecycleGeneration,
+      gateway: getGatewayContextResolver(params.parent),
+      signal: params.signal,
+    },
+    prepareAgentRunAdmission,
+  );
 }
 
 /** Prepares a system-owned run without selecting its eventual execution runtime early. */

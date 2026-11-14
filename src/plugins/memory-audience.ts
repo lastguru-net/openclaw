@@ -25,6 +25,8 @@ type AudienceRecord = {
   leases: GenerationLease[];
   state: "current" | "stale" | "released";
   holders: number;
+  /** Explicit invocation owners, independent of the branded object's GC holders. */
+  ownerHolds: number;
 };
 
 /** A host-minted audience plus the owner-held release for its session leases. */
@@ -163,16 +165,38 @@ function mintMemoryAudience(
     current.holders += 1;
   }
   collectedAudienceRecords.register(frozen, record);
-  return {
-    audience: frozen,
-    release: () => {
-      if (record.state !== "current") {
-        return;
+  return { audience: frozen, release: holdMemoryAudience(frozen, [record]) };
+}
+
+/** A hold retains the branded object itself as well as its private generation owners. */
+function holdMemoryAudience(audience: MemoryAudience, records: AudienceRecord[]): () => void {
+  for (const record of records) {
+    record.ownerHolds += 1;
+  }
+  let heldAudience: MemoryAudience | undefined = audience;
+  return () => {
+    if (!heldAudience) {
+      return;
+    }
+    heldAudience = undefined;
+    for (const record of records) {
+      record.ownerHolds -= 1;
+      if (record.ownerHolds === 0 && record.state === "current") {
+        record.state = "released";
+        releaseRecordLeases(record);
       }
-      record.state = "released";
-      releaseRecordLeases(record);
-    },
+    }
   };
+}
+
+/** Retains the exact minted audience and its lineage for accepted same-session work. */
+export function retainMemoryAudience(audience: MemoryAudience): () => void {
+  assertMemoryAudienceCurrent(audience);
+  const records: AudienceRecord[] = [];
+  for (let record = audienceRecords.get(audience); record; record = record.parent) {
+    records.push(record);
+  }
+  return holdMemoryAudience(audience, records);
 }
 
 /**
@@ -212,7 +236,7 @@ export async function resolveMemoryAudienceFromEntry(
   let crossedAgents = false;
   const assertCallerCurrent = params.assertCallerCurrent ?? (() => {});
   const seen = new Set<string>();
-  const record: AudienceRecord = { leases: [], state: "current", holders: 0 };
+  const record: AudienceRecord = { leases: [], state: "current", holders: 0, ownerHolds: 0 };
   let requiredLifecycleRevision: string | undefined;
   let sessionIdOnly = false;
   // A scheduled occurrence's requester check caps owner status for the whole
@@ -475,7 +499,13 @@ export async function delegateMemoryAudience(
   if (!lease) {
     throw new Error(`child session changed during memory audience delegation: ${child.sessionKey}`);
   }
-  const record: AudienceRecord = { parent, leases: [lease], state: "current", holders: 0 };
+  const record: AudienceRecord = {
+    parent,
+    leases: [lease],
+    state: "current",
+    holders: 0,
+    ownerHolds: 0,
+  };
   try {
     // The parent can go stale while the child row is read; recheck both after the awaits.
     assertCallerCurrent();

@@ -24,11 +24,16 @@ import {
   assertMemoryAudienceSession as assertSession,
   delegateMemoryAudience,
   isHostMemoryAudience,
+  retainMemoryAudience,
   type MemoryAudienceResolution,
   prepareMemoryAudienceRead,
   resolveMemoryAudienceFromEntry,
 } from "./memory-audience.js";
-import { fakeSessionOwner, type FakeSessionRow } from "./memory-audience.test-support.js";
+import {
+  fakeSessionGenerationModule,
+  fakeSessionOwner,
+  type FakeSessionRow,
+} from "./memory-audience.test-support.js";
 
 const AGENT_ID = "main";
 const ROOT_KEY = "agent:main:root";
@@ -639,3 +644,112 @@ it.each([
     );
   },
 );
+
+it("retains the same branded audience independently of the foreground grant", async () => {
+  const root = rootEntry();
+  const grant = await grantAt(ROOT_KEY, root, true);
+  const releaseChild = retainMemoryAudience(grant.audience);
+  grant.release();
+  grant.release();
+  expect(isHostMemoryAudience(grant.audience)).toBe(true);
+  expect(() => assertSession(grant.audience, ROOT_KEY)).not.toThrow();
+  expect(() => assertCurrent(grant.audience)).not.toThrow();
+  expect(fakeSessionOwner.activeLeases).toBe(1);
+  releaseChild();
+  releaseChild();
+  expect(fakeSessionOwner.activeLeases).toBe(0);
+  expect(() => assertCurrent(grant.audience)).toThrow("released");
+});
+
+it("rejects retaining an unbranded or released audience", async () => {
+  expect(() => retainMemoryAudience({ kind: "owner-private", agentId: AGENT_ID })).toThrow(
+    "not minted",
+  );
+  const grant = await grantAt(ROOT_KEY, rootEntry(), true);
+  grant.release();
+  expect(() => retainMemoryAudience(grant.audience)).toThrow("released");
+  expect(fakeSessionOwner.activeLeases).toBe(0);
+});
+
+it("retains delegated lineage owners but still rejects their changed generations", async () => {
+  const { rootGrant, grant } = await delegatedChild();
+  const releaseChild = retainMemoryAudience(grant.audience);
+  grant.release();
+  rootGrant.release();
+  expect(() => assertCurrent(grant.audience)).not.toThrow();
+  expect(() => assertSession(grant.audience, CHILD_KEY)).not.toThrow();
+  const entry = fakeSessionOwner.rows.get(ROOT_KEY)!;
+  fakeSessionOwner.rows.set(ROOT_KEY, { ...entry, sessionId: randomUUID() });
+  expect(() => assertCurrent(grant.audience)).toThrow("no longer current");
+  releaseChild();
+  expect(fakeSessionOwner.activeLeases).toBe(0);
+});
+
+it("keeps the original branded audience live through a real delegated host's cleanup", async () => {
+  const [{ createAdmittedHostCapabilityTestFixture }, agentTools] = await Promise.all([
+    import("../agents/harness/host-capability.test-support.js"),
+    import("../agents/agent-tools.async.js"),
+  ]);
+  const root = rootEntry();
+  const grant = await grantAt(ROOT_KEY, root, true);
+  const host = await createAdmittedHostCapabilityTestFixture({
+    runId: "memory-parent",
+    agentId: AGENT_ID,
+    sessionKey: ROOT_KEY,
+    sessionId: root.sessionId,
+    config: {},
+  });
+  using construction = vi
+    .spyOn(agentTools, "createOpenClawCodingToolsInternalAsync")
+    .mockResolvedValue([]);
+  let child:
+    | Awaited<ReturnType<NonNullable<typeof host.hostCapabilities.createDelegatedToolHost>>>
+    | undefined;
+  try {
+    host.hostCapabilities.prepareDelegatedToolHosts!();
+    await host.hostCapabilities.createToolSurfaceAsync!({
+      agentId: AGENT_ID,
+      sessionKey: ROOT_KEY,
+      memoryAudience: grant.audience,
+    });
+    child = await host.hostCapabilities.createDelegatedToolHost!({ runId: "memory-child" });
+    host.closeHost();
+    host.closeAdmission();
+    grant.release();
+    await child.capabilities.createToolSurfaceAsync();
+    const options = construction.mock.calls.at(-1)?.[0];
+    expect(options?.memoryAudience).toBe(grant.audience);
+    expect(() => assertCurrent(grant.audience)).not.toThrow();
+    expect(fakeSessionOwner.activeLeases).toBe(1);
+    await child.close();
+    expect(fakeSessionOwner.activeLeases).toBe(0);
+    expect(() => assertCurrent(grant.audience)).toThrow("released");
+  } finally {
+    await child?.close();
+    host.closeHost();
+    host.closeAdmission();
+    grant.release();
+  }
+});
+
+it("keeps retired fixture lease releases out of the current generation's count", async () => {
+  const root = rootEntry();
+  fakeSessionOwner.rows.set(ROOT_KEY, root);
+  const previous = await fakeSessionGenerationModule.prepareSessionGenerationFacts({
+    sessionKey: ROOT_KEY,
+    sessionId: root.sessionId,
+    lifecycleRevision: root.lifecycleRevision ?? null,
+  });
+  fakeSessionOwner.reset();
+  fakeSessionOwner.rows.set(ROOT_KEY, root);
+  const current = await fakeSessionGenerationModule.prepareSessionGenerationFacts({
+    sessionKey: ROOT_KEY,
+    sessionId: root.sessionId,
+    lifecycleRevision: root.lifecycleRevision ?? null,
+  });
+  previous.release();
+  expect(fakeSessionOwner.activeLeases).toBe(1);
+  expect(() => previous.assertCurrent()).toThrow("fixture owner has ended");
+  current.release();
+  expect(fakeSessionOwner.activeLeases).toBe(0);
+});
