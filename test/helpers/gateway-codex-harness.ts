@@ -11,6 +11,46 @@ import { extractFirstTextBlock } from "../../src/shared/chat-message-content.js"
 // Native live fixture setup and capture shared with its offline boundary regressions.
 import { createOpenClawTestInstance } from "./openclaw-test-instance.js";
 
+/** Copy only already-isolated canonical live auth, before the new instance applies its env. */
+export async function stageCodexHarnessLiveAuth(instance: { stateDir: string }) {
+  const testHome = process.env.OPENCLAW_TEST_HOME?.trim();
+  if (!testHome) {
+    throw new Error("Codex live auth requires the test-env staged test home, not production state");
+  }
+  const { resolveStateDir, resolveConfigPath } = await import("../../src/config/paths.js");
+  const home = await fs.realpath(testHome);
+  const source = await fs.realpath(resolveStateDir());
+  const configPath = await fs.realpath(resolveConfigPath());
+  for (const candidate of [source, configPath]) {
+    const relative = path.relative(home, candidate);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Codex live auth source must remain inside the already-staged test home");
+    }
+  }
+  const [
+    { readLiveTestConfig },
+    { resolveAmbientOwnerAgentId },
+    { stageLiveAuthProfiles },
+    { createOpenClawDatabaseMaintenanceScope },
+  ] = await Promise.all([
+    import("../../src/agents/live-test-config.js"),
+    import("../../src/agents/agent-scope-config.js"),
+    import("./stage-live-auth-profiles.js"),
+    import("../../src/state/openclaw-state-db-async-lifecycle.js"),
+  ]);
+  const config = await readLiveTestConfig();
+  const agentId = resolveAmbientOwnerAgentId(config);
+  const scope = createOpenClawDatabaseMaintenanceScope();
+  try {
+    // Existing portability rules preserve credential selection/order and never clone
+    // nonportable OAuth refresh ownership or borrow native ~/.codex credentials.
+    await scope.run(() => stageLiveAuthProfiles(source, instance.stateDir));
+  } finally {
+    await scope.close();
+  }
+  return { agentId, auth: config.auth };
+}
+
 export async function readCodexHarnessSessionId(params: {
   client: GatewayClient;
   sessionKey: string;
