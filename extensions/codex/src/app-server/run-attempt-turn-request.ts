@@ -289,6 +289,9 @@ export async function prepareCodexAttemptTurnRequest(
         buildCodexConversationTurnInstructions(
           runtimeParams,
           attemptTools.toolBridge.availableSpecs,
+          connection.pluginConfig.nativeChildTools?.allow?.length
+            ? attemptTools.nativeChildTools.catalog
+            : undefined,
         ),
       );
       const registration = await inferenceRoute.context.register({

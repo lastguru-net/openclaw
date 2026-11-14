@@ -1,3 +1,4 @@
+import { releaseNativeChildTools, transferNativeChildTools } from "./native-child-tool-custody.js";
 import {
   matchingNativeModelAdmissions,
   matchingNativeModelCause as matchingCause,
@@ -223,7 +224,11 @@ export function releaseNativeDirectChild(child: ChildState): void {
   const release = child.releaseDirectChild;
   child.releaseDirectChild = undefined;
   child.directOwner = undefined;
-  release?.();
+  try {
+    releaseNativeChildTools(child);
+  } finally {
+    release?.();
+  }
 }
 
 export function admitNativeChildModelExecution(
@@ -276,6 +281,36 @@ export function bindNativeChildModelAdmission(
   known: KnownChild,
   child: ChildState | undefined,
 ): boolean {
+  // Input acceptance can precede the native turn. Keep its tools on the receipt
+  // until observed lineage pairs it with an exact receiver turn.
+  const toolTurnId = evidence.nativeTurnId ?? evidence.modelSourceTurnId;
+  const pendingTools = known.pendingTurns.find((pending) => pending.turnId === toolTurnId);
+  if (
+    evidence.childTools &&
+    pendingTools &&
+    (!pendingTools.state || pendingTools.state === "active")
+  ) {
+    evidence.admittedOwner ??= evidence.childToolsOwner;
+    if (pendingTools.childTools) {
+      releaseNativeChildTools(evidence);
+    } else {
+      transferNativeChildTools(evidence, pendingTools);
+    }
+  } else if (
+    evidence.childTools &&
+    child &&
+    child.nativeTurnId === toolTurnId &&
+    !child.terminal &&
+    !child.settledWithoutCompletion
+  ) {
+    evidence.admittedOwner ??= evidence.childToolsOwner;
+    if (child.childTools) {
+      // An input steering the same turn does not replace its running executor.
+      releaseNativeChildTools(evidence);
+    } else {
+      transferNativeChildTools(evidence, child);
+    }
+  }
   const source = evidence.modelSource;
   if (!source) {
     return false;
@@ -326,9 +361,11 @@ export function closeNativeModelChild(
   }
   const child = children.get(known.assignment.runId);
   if (child) {
+    releaseNativeDirectChild(child);
     releaseNativeModelExecution(child);
   }
   for (const pending of known.pendingTurns) {
+    releaseNativeChildTools(pending);
     pending.modelSource?.release();
     pending.modelSource = undefined;
   }
@@ -345,6 +382,7 @@ export function releaseNativeParentModelSources(
   for (const known of children) {
     if (known.parent === state) {
       for (const pending of known.pendingTurns) {
+        releaseNativeChildTools(pending);
         pending.modelSource?.release();
         pending.modelSource = undefined;
       }

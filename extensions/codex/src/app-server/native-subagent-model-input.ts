@@ -361,6 +361,7 @@ export async function prepareNativeModelToolInput(
     const qualified = configurationQualification?.hasProvider(thread.modelProvider) === true;
     const preparedOwner: ParentOwner = {
       ...owner,
+      createChildTools: undefined,
       configurationQualification,
       nativeInputConfiguration: true,
       unqualifiedModelExecution: undefined,
@@ -471,6 +472,12 @@ type AdmissionDrainDependencies = {
     threadId: string,
     options: { agentPath?: string; directOwner?: ParentOwner; nativeParentThreadId?: string },
   ) => ChildState | undefined;
+  captureInteractionTools: (
+    state: ParentState,
+    evidence: Extract<NativeChildAdmissionEvidence, { kind: "interaction" }>,
+    owner: ParentOwner,
+    parentTurnId: string,
+  ) => void;
   admitFollowupChild: (known: KnownChild, owner?: ParentOwner) => ChildState | undefined;
   observeActivity: (child: ChildState) => void;
 };
@@ -488,7 +495,8 @@ export function drainNativeChildModelAdmissions(
     entry.kind === "interaction" &&
     (entry.admittedOwner === owner ||
       entry.modelSource?.owner === owner ||
-      (entry.owner === owner && entry.modelSource));
+      entry.childToolsOwner === owner ||
+      (entry.owner === owner && (entry.modelSource || entry.childTools)));
   if (
     !pending ||
     !dependencies.isCurrent(state) ||
@@ -523,6 +531,11 @@ export function drainNativeChildModelAdmissions(
         remaining.push(evidence);
         continue;
       }
+      if (ownerIsCurrent) {
+        // Native notifications can precede turn/start's response. Binding is the
+        // first point where their exact foreground owner can issue a tool grant.
+        dependencies.captureInteractionTools(state, evidence, owner, turnId);
+      }
       if (evidence.agentPath && !known.agentPaths.has(evidence.agentPath)) {
         dependencies.registerAgentPath(state, evidence.childThreadId, evidence.agentPath);
       }
@@ -531,7 +544,7 @@ export function drainNativeChildModelAdmissions(
         known,
         dependencies.currentChild(evidence.childThreadId),
       );
-      if (waitingForModel) {
+      if (waitingForModel || (evidence.childTools && !evidence.nativeTurnId)) {
         remaining.push(evidence);
       }
       if (evidence.nativeTurnId) {
@@ -542,7 +555,9 @@ export function drainNativeChildModelAdmissions(
         const nativeTurn = known.pendingTurns.find((turn) => turn.turnId === evidence.nativeTurnId);
         if (nativeTurn) {
           if (!nativeTurn.admittedOwner) {
-            nativeTurn.admittedOwner = ownerIsCurrent ? owner : evidence.admittedOwner;
+            nativeTurn.admittedOwner = ownerIsCurrent
+              ? owner
+              : (evidence.admittedOwner ?? evidence.childToolsOwner);
             nativeTurn.completionCustody ??= evidence.completionCustody?.retain();
             if (ownerIsCurrent) {
               owner.onDirectChildAccepted?.();
@@ -554,7 +569,7 @@ export function drainNativeChildModelAdmissions(
           continue;
         }
       } else if (ownerIsCurrent || waitingForModel) {
-        if (!waitingForModel) {
+        if (!waitingForModel && !evidence.childTools) {
           remaining.push(evidence);
         }
       } else {

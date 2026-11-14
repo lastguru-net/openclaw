@@ -1,0 +1,4 @@
+# Native-child host delegation requires distinct source, memory/auth, ambient
+# lifetime, queued/replay/cancel, computer-frame and real Gateway/native proof.
+# Existing owning fixtures and serial focused suites are reused. See feature docs.
+2013

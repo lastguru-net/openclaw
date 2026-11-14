@@ -77,6 +77,8 @@ work that needs OpenClaw tools uses the available `sessions_spawn` route with
 inherit dynamic tool schemas without an OpenClaw executor. Existing native
 children keep their native follow-up path; tool failures do not migrate them
 to managed workers. Explicit ACP delegation still uses `sessions_spawn`.
+The opt-in [native-child host policy](#native-child-host-tools) below permits a
+narrower exception for explicitly selected tools.
 Message-tool-only source replies also stay direct, since that is a
 turn-control contract.
 
@@ -102,6 +104,87 @@ the full tool payload.
 
 For supported checks before inference, see
 [Codex pre-turn verification](/plugins/codex-harness/commands#verify-tool-access-before-a-codex-turn).
+
+## Native-child host tools
+
+Native children have no OpenClaw host-tool access by default, even when Codex
+inherits their declarations. To delegate selected tools, configure the Codex
+plugin:
+
+```json5
+{
+  plugins: {
+    entries: {
+      codex: {
+        config: {
+          nativeChildTools: {
+            allow: ["search_notes", "read_note", "skills_read", "better_patch", "research__get_*"],
+            deny: ["research__delete_*"],
+          },
+        },
+      },
+    },
+  },
+}
+```
+
+These example memory, patch and MCP names depend on installed tools. Use their
+canonical OpenClaw names, not JavaScript wrapper spellings or plugin IDs. The
+existing tool-policy matcher supplies name normalization, exact matching and
+`*` globs. Deny wins. Omitted policy or an empty `allow` grants nothing; `*`
+explicitly selects every otherwise eligible tool. A newly available matching
+tool can expand a wildcard grant when a fresh surface is constructed. A name
+such as `get_*` does not prove that its operations are read-only.
+
+**This delegates host authority, not the child's native sandbox.** Selected
+calls run under the owning OpenClaw session/requester's host restrictions,
+narrowed by this policy. A native read-only child can therefore write through
+an allowed host file tool. Existing argument validation, approvals, workspace
+restrictions, action policy and source revocation still apply. An allowlist
+cannot create credentials or restore a denied parent tool. The parent's tool
+surface and the child's native shell, Code Mode and collaboration are unchanged.
+Policy changes use the existing Gateway restart/replacement semantics, not a
+new hot-reload mechanism.
+
+Each admitted direct child gets fresh executors and a separate execution owner.
+It can continue using them after successful parent completion or yield. A later
+accepted parent follow-up gets its own captured authority, including when the
+input is queued before a receiver turn exists. Child completion, cancellation,
+failed parent completion or source revocation closes the corresponding grant.
+Unknown children and nested descendants without a direct grant cannot borrow
+it. Identical repeated calls share the same execution; a repeated call ID with
+different arguments is rejected.
+
+Foreground conversation controls, reply delivery, managed delegation, questions,
+goals and progress cards are unsupported in children. Personal skill-library
+authoring (`skill_library`) is also foreground-bound; ordinary skill reads are
+not excluded. Codex host-process
+projections (`exec`, `process`, `gateway_exec`, `gateway_process`, `node_exec`,
+`sandbox_exec`, `sandbox_process`) are also unsupported; use the child's native
+shell for native execution. Memory, skills, file and plugin/service tools are
+not excluded merely because they are host-owned. Worker-turn and settled-receipt
+capabilities are not transferable through this feature.
+
+### Inspect a grant
+
+With file logging at `logging.level: "debug"`, inspect `openclaw logs --json`
+for these records:
+
+- `codex native-child tool policy`: the owning turn's eligible canonical names,
+  plugin/MCP owners where available, and unmatched allow/deny patterns.
+- `codex native-child executable tools`: the child run/thread's reconstructed
+  surface, checked against the declarations already registered with Codex.
+
+Both report `allowed`, `denied`, `unavailable` or `unsupported`. Inspection
+does not invoke tools. The first record is eligibility, not proof of a live
+child executor; the second still does not bypass per-call checks or approvals.
+Unavailable or changed schemas cannot be rescued by a wildcard. Rejected calls
+explain the relevant policy or ownership failure.
+
+Persistent developer guidance describes the host/native authority split, and
+turn guidance names eligible tools. Codex can still inherit declarations that
+are not executable. A schema is not a grant; children must obey the execution
+result rather than respawning to evade a denial.
 
 ## Protected conversation continuity
 

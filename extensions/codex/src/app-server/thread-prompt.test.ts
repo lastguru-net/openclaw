@@ -157,6 +157,47 @@ describe("buildDeveloperInstructions deferred tool discovery", () => {
 });
 
 describe("buildDeveloperInstructions delegation guidance", () => {
+  it("describes explicit host delegation without claiming child sandbox enforcement", () => {
+    const instructions = render({
+      config: {
+        plugins: {
+          entries: {
+            codex: {
+              config: {
+                nativeChildTools: {
+                  allow: ["read_note", "research__*"],
+                  deny: ["research__delete_*"],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(instructions).toContain('allow ["read_note","research__*"]');
+    expect(instructions).toContain('deny ["research__delete_*"]');
+    expect(instructions).toContain("native Codex sandbox does not restrict these host operations");
+    expect(instructions).toContain("Inherited declarations are not execution grants");
+    expect(instructions).not.toContain(
+      "Native children cannot execute OpenClaw-owned dynamic tools",
+    );
+    expect(
+      render({
+        config: {
+          plugins: {
+            entries: {
+              codex: {
+                config: {
+                  nativeChildTools: { allow: [] },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toContain("Native children cannot execute OpenClaw-owned dynamic tools");
+  });
+
   it("routes new helpers by tool requirements without moving existing children", () => {
     const instructions = render(
       {},

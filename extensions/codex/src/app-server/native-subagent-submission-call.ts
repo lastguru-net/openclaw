@@ -412,11 +412,15 @@ export function createNativeSubagentSubmissionCalls(
       for (const target of targets) {
         const { childThreadId, predecessor } = target;
         const modelOwner = modelSource?.owner ?? owner;
-        if (modelOwner.modelSource && ("child" in predecessor || predecessor.terminal)) {
+        if (
+          (modelOwner.modelSource || owner.createChildTools) &&
+          ("child" in predecessor || predecessor.terminal)
+        ) {
           dependencies.acceptContinuation(
             state,
             {
               ...owner,
+              createChildTools: undefined,
               claimDirectChild: undefined,
               rejectPendingDirectChild: undefined,
               onDirectChildAccepted: undefined,

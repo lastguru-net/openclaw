@@ -23,6 +23,7 @@ import {
   isProjectedNativeToolItem,
   itemName,
   itemStatus,
+  nativeToolResultContentSource,
 } from "./event-projector-items.js";
 import {
   isNativePostToolUseRelayItem,
@@ -212,6 +213,7 @@ export class CodexToolTranscriptProjection {
     }
     const status = itemStatus(item);
     const approvalTimeoutExplanation = this.progress.approvalTimeoutExplanation(item.id, status);
+    const resultContentSource = nativeToolResultContentSource(item);
     this.recordToolResult({
       id: item.id,
       name,
@@ -226,7 +228,7 @@ export class CodexToolTranscriptProjection {
         ? { captureTruncated: true }
         : {}),
       details,
-      ...(item.type === "webSearch" ? { resultContentSource: "network" } : {}),
+      ...(resultContentSource ? { resultContentSource } : {}),
     });
     this.progress.approvalTimeoutKinds.delete(item.id);
   }

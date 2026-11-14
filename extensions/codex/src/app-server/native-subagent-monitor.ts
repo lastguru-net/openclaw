@@ -6,6 +6,7 @@ import {
   readStringField as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { CODEX_APP_SERVER_INTERRUPT_TIMEOUT_MS } from "./attempt-client-cleanup.js";
+import { releaseNativeChildTools } from "./native-child-tool-custody.js";
 import {
   CodexNativeSubagentAdmissionCustody,
   releaseCompletionCustody,
@@ -24,6 +25,14 @@ import {
 } from "./native-subagent-cancellation-selection.js";
 import { waitForNativeCancellationWork } from "./native-subagent-cancellation-wait.js";
 import {
+  captureAcceptedNativeChildInteractionTools,
+  createNativeChildToolRequestHandler,
+  createNativeChildTools,
+  observeNativeChildToolContext,
+  releaseNativeChildToolsForOwner,
+  type NativeChildToolRoutingContext,
+} from "./native-subagent-child-tool-routing.js";
+import {
   CodexNativeSubagentCloseOwner,
   isCodexNativeSubagentCloseNotification,
 } from "./native-subagent-close-owner.js";
@@ -34,6 +43,10 @@ import {
   registerCodexNativeSubagentReceiptAlias,
   type CodexNativeSubagentDeliveryReceipts,
 } from "./native-subagent-delivery-receipts.js";
+import {
+  admitNativeFollowupChild,
+  releasePendingNativeChildTurn,
+} from "./native-subagent-followup-admission.js";
 import {
   CodexNativeSubagentHistoryRecovery,
   readNativeTurnEnd,
@@ -122,6 +135,7 @@ class Monitor {
   private readonly recovery: CodexNativeSubagentRecoveryCoordinator;
   private readonly parentStates = new Map<string, ParentState>();
   private readonly admissionCustody: CodexNativeSubagentAdmissionCustody;
+  private readonly childToolContext: NativeChildToolRoutingContext;
   private readonly retiredParentStates = new WeakSet<ParentState>();
   private readonly childStates = new Map<string, ChildState>();
   // Native threads survive completed assignments; task runs and delivery remain per assignment.
@@ -140,6 +154,7 @@ class Monitor {
   >();
   private readonly cancellationTurnWaiters = new Map<ChildState, () => void>();
   private readonly removeNotificationHandler: () => void;
+  private readonly removeRequestHandler: () => void;
   private readonly removeCloseHandler: () => void;
   private readonly retainClient?: () => (() => void) | undefined;
   private readonly retainParentThread?: (threadId: string) => (() => void) | undefined;
@@ -165,6 +180,14 @@ class Monitor {
       childStates: this.childStates,
       runtime,
     });
+    this.childToolContext = {
+      knownChildren: this.knownChildren,
+      childStates: this.childStates,
+      admissions: this.admissionCustody.entries,
+      currentChild: (threadId) => this.currentChild(threadId),
+      isCurrentParent: (state) => this.isCurrentParent(state),
+      childAdmissionCancelled: (state, owner) => this.childAdmissionCancelled(state, owner),
+    };
     this.retainClient = options.retainClient;
     this.retainParentThread = options.retainParentThread;
     this.claimChildThread = options.claimChildThread;
@@ -397,6 +420,9 @@ class Monitor {
       acceptInteraction: this.submissions.modelInputs.acceptInteraction,
       observeCall: this.submissions.modelInputs.observeCall,
     });
+    this.removeRequestHandler = client.addRequestHandler(
+      createNativeChildToolRequestHandler(this.childToolContext),
+    );
     this.removeCloseHandler = client.addCloseHandler(() => {
       void this.dispose().catch((error: unknown) => {
         embeddedAgentLog.warn("Failed to settle Codex native assignments after client closure", {
@@ -412,8 +438,10 @@ class Monitor {
     }
     this.disposed = true;
     this.removeNotificationHandler();
+    this.removeRequestHandler();
     this.removeCloseHandler();
     for (const childState of this.childStates.values()) {
+      releaseNativeChildTools(childState);
       try {
         this.turnObservation.invalidate(childState);
       } catch (error) {
@@ -423,6 +451,16 @@ class Monitor {
         });
       }
       this.recovery.clearRecoveryTimers(childState);
+    }
+    for (const known of this.knownChildren.values()) {
+      known.pendingTurns.forEach(releaseNativeChildTools);
+    }
+    for (const entries of this.admissionCustody.entries.values()) {
+      for (const evidence of entries) {
+        if (evidence.kind === "interaction") {
+          releaseNativeChildTools(evidence);
+        }
+      }
     }
     const parents = [...this.parentStates.values()];
     for (const state of parents) {
@@ -493,7 +531,7 @@ class Monitor {
       }
     }
     for (const known of this.knownChildren.values()) {
-      known.pendingTurns.forEach(releaseCompletionCustody);
+      known.pendingTurns.forEach(releasePendingNativeChildTurn);
     }
     this.knownChildren.clear();
     this.childThreadIdsByAgentPath.clear();
@@ -526,6 +564,7 @@ class Monitor {
         this.drainPendingChildAdmissionEvidence(state, owner, turnId, true),
       clearAdmissions: () => this.clearUnconsumablePendingChildAdmissionEvidence(),
       prune: (state) => this.pruneParentIfUnused(state),
+      releaseChildTools: (owner) => releaseNativeChildToolsForOwner(this.childToolContext, owner),
       pendingChildren: (state) =>
         listNativePendingChildren(
           listNativeRequesterParents(this.parentStates, state),
@@ -621,6 +660,7 @@ class Monitor {
             for (const pending of known.pendingTurns) {
               addOwner(pending.admittedOwner);
               addOwner(pending.modelSource?.owner);
+              addOwner(pending.childToolsOwner);
             }
           }
         }
@@ -633,6 +673,7 @@ class Monitor {
               addOwner(evidence.owner);
               addOwner(evidence.modelOwner);
               addOwner(evidence.modelSource?.owner);
+              addOwner(evidence.childToolsOwner);
             }
           }
         }
@@ -643,6 +684,31 @@ class Monitor {
         for (const owner of owners) {
           if (matchesOwner(owner)) {
             owner.descendantsCancelled = true;
+          }
+        }
+        for (const state of states) {
+          notifyNativeModelSourceWaiters(state);
+        }
+        // Tool effects lose authority before native interruption can await receipts.
+        for (const child of selected) {
+          releaseNativeChildTools(child);
+        }
+        for (const known of this.knownChildren.values()) {
+          for (const pending of known.pendingTurns) {
+            if (pending.childToolsOwner && matchesOwner(pending.childToolsOwner)) {
+              releaseNativeChildTools(pending);
+            }
+          }
+        }
+        for (const entries of this.admissionCustody.entries.values()) {
+          for (const evidence of entries) {
+            if (
+              evidence.kind === "interaction" &&
+              evidence.childToolsOwner &&
+              matchesOwner(evidence.childToolsOwner)
+            ) {
+              releaseNativeChildTools(evidence);
+            }
           }
         }
         const results = await Promise.allSettled(
@@ -956,6 +1022,11 @@ class Monitor {
     // Revoke the whole captured lineage before cleanup can admit another completion.
     for (const state of states) {
       this.retiredParentStates.add(state);
+      for (const child of this.childStates.values()) {
+        if (child.parentThreadId === state.parentThreadId) {
+          releaseNativeChildTools(child);
+        }
+      }
     }
     const settlements: Promise<void>[] = [];
     for (const state of states) {
@@ -1007,6 +1078,7 @@ class Monitor {
     const startedThread = isJsonObject(params?.thread) ? params.thread : undefined;
     const threadId =
       readString(params, "threadId")?.trim() ?? readString(startedThread, "id")?.trim();
+    observeNativeChildToolContext(this.childToolContext, notification, params, threadId);
     const threadStatus = isJsonObject(params?.status)
       ? normalizeIdentifier(readString(params.status, "type"))
       : undefined;
@@ -1052,6 +1124,9 @@ class Monitor {
       const pending = known?.pendingTurns.find((candidate) => candidate.turnId === turnId);
       if (pending) {
         pending.state = readNativeTurnEnd(turn);
+        if (pending.state) {
+          releaseNativeChildTools(pending);
+        }
       }
       const observed = turnId ? known?.observedTurns.get(turnId) : undefined;
       if (observed) {
@@ -1453,6 +1528,9 @@ class Monitor {
     }
     const observedTurn = Boolean(child.nativeTurnId && child.nativeTurnId !== turnId);
     if (child.nativeTurnId !== turnId) {
+      child.nativeToolOutcome = this.knownChildren
+        .get(child.childThreadId)
+        ?.pendingTurns.find((pending) => pending.turnId === turnId)?.nativeToolOutcome;
       child.nativeTurnId = turnId;
       child.activityWait = undefined;
     }
@@ -1652,7 +1730,7 @@ class Monitor {
       return undefined;
     }
     const claimDirectChild = options.directOwner?.claimDirectChild;
-    if (claimDirectChild && this.recovery.isTerminalThread(childThreadId)) {
+    if (options.directOwner && this.recovery.isTerminalThread(childThreadId)) {
       // A late spawn event is observational only after this client has seen
       // the child's terminal state; it must not recreate direct authority.
       return undefined;
@@ -1728,16 +1806,18 @@ class Monitor {
       }
     }
     if (
-      claimDirectChild &&
+      options.directOwner &&
       !childState.terminal &&
       !childState.settledWithoutCompletion &&
-      !childState.releaseDirectChild
+      !childState.directOwner
     ) {
+      releaseNativeDirectChild(childState);
       childState.directOwner = options.directOwner;
       childState.requesterTurnRunId = options.directOwner?.requesterTurnRunId;
       childState.requestCustody = options.directOwner?.requestCustody;
       childState.cancelProcesses = options.directOwner?.cancelChildProcesses;
-      childState.releaseDirectChild = claimDirectChild(childThreadId);
+      childState.releaseDirectChild = claimDirectChild?.(childThreadId);
+      createNativeChildTools(this.childToolContext, state, childState, options.directOwner);
     }
     // Execution relay custody ends before completion; retain the admitting source independently.
     childState.completionCustody ??= (
@@ -1956,7 +2036,7 @@ class Monitor {
       this.registerAgentPath(state, threadId, agentPath);
     }
     const parentTurnId = interaction.parentTurnId ?? admissionOwner?.turnId;
-    this.admissionCustody.buffer(parentTurnId, {
+    const evidence = this.admissionCustody.buffer(parentTurnId, {
       kind: "interaction",
       parentThreadId: state.parentThreadId,
       childThreadId: threadId,
@@ -1968,6 +2048,15 @@ class Monitor {
       ...(owner ? { owner } : {}),
       ...(interaction.modelOwner ? { modelOwner: interaction.modelOwner } : {}),
     });
+    if (evidence?.kind === "interaction" && admissionOwner && known) {
+      captureAcceptedNativeChildInteractionTools(
+        this.childToolContext,
+        state,
+        evidence,
+        admissionOwner,
+        parentTurnId,
+      );
+    }
     if (!known && unqualified) {
       admissionOwner.onDirectChildAccepted?.();
     }
@@ -1977,166 +2066,22 @@ class Monitor {
   }
 
   private admitFollowupChild(known: KnownChild, owner?: ParentOwner): ChildState | undefined {
-    const threadId = known.assignment.childThreadId;
-    if (
-      this.parentStates.get(known.parent.parentThreadId) !== known.parent ||
-      this.retiredParentStates.has(known.parent)
-    ) {
-      return undefined;
-    }
-    let child = this.currentChild(threadId);
-    if (!child && !known.assignment.terminal) {
-      return undefined;
-    }
-    let claimOwner = owner;
-    let transitioned = false;
-    while (known.pendingTurns.length > 0) {
-      const pending = known.pendingTurns[0]!;
-      const currentTurnId = child?.nativeTurnId;
-      const recoveredIndex = currentTurnId
-        ? known.pendingTurns.findIndex((candidate) => candidate.turnId === currentTurnId)
-        : -1;
-      if (
-        child &&
-        !child.terminal &&
-        !known.assignment.terminal &&
-        (recoveredIndex >= 0 || child.nativeTurnState === "interrupted")
-      ) {
-        // History may traverse several interrupted continuations at once. Remove
-        // every covered provisional boundary before any receipt matching resumes.
-        let continuationCount = Math.max(1, recoveredIndex + 1);
-        if (recoveredIndex < 0) {
-          while (
-            continuationCount < known.pendingTurns.length &&
-            known.pendingTurns[continuationCount - 1]?.state === "interrupted"
-          ) {
-            continuationCount += 1;
-          }
-        }
-        const resumed = known.pendingTurns[continuationCount - 1]!;
-        const resumedOwner = resumed.modelSource?.owner ?? resumed.admittedOwner;
-        if (this.childAdmissionCancelled(known.parent, resumedOwner)) {
-          return undefined;
-        }
-        const continuations = known.pendingTurns.splice(0, continuationCount);
-        child.requesterTurnRunId = resumedOwner?.requesterTurnRunId;
-        child.requestCustody = resumedOwner?.requestCustody;
-        child.cancelProcesses = resumedOwner?.cancelChildProcesses;
-        child.cancellationRequested = undefined;
-        child.terminalHandling = undefined;
-        child.completionCustody ??= resumed.completionCustody?.retain();
-        continuations.forEach(releaseCompletionCustody);
-        if (recoveredIndex < 0) {
-          child.nativeTurnId = resumed.turnId;
-          child.nativeTurnState = resumed.state;
-          child.activityWait = undefined;
-        }
-        claimOwner = resumed.admittedOwner;
-        if (resumed.modelSource) {
-          releaseNativeModelExecution(child);
-          child.modelExecution = resumed.modelSource;
-          resumed.modelSource = undefined;
-        }
-        for (const continuation of continuations) {
-          continuation.modelSource?.release();
-        }
-        transitioned = true;
-        this.completionDelivery.applyReceipts(
-          known.parent,
-          known.deliveryReceipts.resumeAssignment(
-            child.runId,
-            continuations.map((turn) => codexNativeSubagentRunId(threadId, turn.turnId)),
-          ),
-        );
-        continue;
-      }
-      if (
-        child &&
-        !child.terminal &&
-        !known.assignment.terminal &&
-        child.nativeTurnState !== "completed" &&
-        child.nativeTurnState !== "failed"
-      ) {
-        child.nativeTurnState = undefined;
-        return undefined;
-      }
-      if (!pending.admittedOwner && !pending.admittedSubmission && !pending.modelSource) {
-        return undefined;
-      }
-      const pendingOwner = pending.modelSource?.owner ?? pending.admittedOwner;
-      if (this.childAdmissionCancelled(known.parent, pendingOwner)) {
-        return undefined;
-      }
-      const runId = codexNativeSubagentRunId(threadId, pending.turnId);
-      child = this.registerChildThread(
-        known.parent,
-        { runId, childThreadId: threadId, nativeTurnId: pending.turnId },
-        {
-          admitAssignment: true,
-          completionCustody: pending.completionCustody,
-        },
-      );
-      if (!child) {
-        return undefined;
-      }
-      child.nativeTurnId = pending.turnId;
-      child.nativeTurnState = pending.state;
-      child.requesterTurnRunId = pendingOwner?.requesterTurnRunId;
-      child.requestCustody = pendingOwner?.requestCustody;
-      child.cancelProcesses = pendingOwner?.cancelChildProcesses;
-      if (pending.modelSource) {
-        releaseNativeModelExecution(child);
-        child.modelExecution = pending.modelSource;
-        pending.modelSource = undefined;
-      }
-      claimOwner = pending.admittedOwner;
-      transitioned = true;
-      known.pendingTurns.shift();
-      releaseCompletionCustody(pending);
-    }
-    if (!child || child.terminal || known.assignment.terminal || !child.nativeTurnId) {
-      return undefined;
-    }
-    this.assignments.record(known.parent, child);
-    known.assignment.nativeTurnId = child.nativeTurnId;
-    known.turnId = child.nativeTurnId;
-    if (child.nativeTurnState !== "active") {
-      return child;
-    }
-    const currentInteraction = [...this.admissionCustody.entries.values()]
-      .flat()
-      .findLast(
-        (evidence) =>
-          evidence.kind === "interaction" &&
-          evidence.parentThreadId === known.parent.parentThreadId &&
-          evidence.childThreadId === threadId &&
-          !evidence.nativeTurnId &&
-          evidence.owner &&
-          [...known.parent.owners.values()].includes(evidence.owner),
-      );
-    if (currentInteraction?.kind === "interaction" && currentInteraction.owner) {
-      claimOwner = currentInteraction.owner;
-    }
-    if (claimOwner && [...known.parent.owners.values()].includes(claimOwner)) {
-      if (this.childAdmissionCancelled(known.parent, claimOwner)) {
-        return undefined;
-      }
-      child.requesterTurnRunId = claimOwner.requesterTurnRunId;
-      child.requestCustody = claimOwner.requestCustody;
-      child.cancelProcesses = claimOwner.cancelChildProcesses;
-      child.completionCustody ??= claimOwner.completionCustody?.retain();
-      if (child.directOwner !== claimOwner) {
-        releaseNativeDirectChild(child);
-        child.directOwner = claimOwner;
-        child.releaseDirectChild = claimOwner.claimDirectChild?.(child.childThreadId);
-      }
-      if (!transitioned) {
-        claimOwner.onDirectChildAccepted?.();
-      }
-    }
-    this.observeActiveChild(child);
-    this.admissionCustody.bindEventSink(child);
-    return child;
+    return admitNativeFollowupChild(known, owner, {
+      parents: this.parentStates,
+      retiredParents: this.retiredParentStates,
+      admissions: this.admissionCustody.entries,
+      currentChild: (threadId) => this.currentChild(threadId),
+      childAdmissionCancelled: (state, admittedOwner) =>
+        this.childAdmissionCancelled(state, admittedOwner),
+      registerChild: (state, assignment, options) =>
+        this.registerChildThread(state, assignment, options),
+      recordAssignment: (state, child) => this.assignments.record(state, child),
+      applyReceipts: (state, runIds) => this.completionDelivery.applyReceipts(state, runIds),
+      createChildTools: (state, child, admittedOwner) =>
+        createNativeChildTools(this.childToolContext, state, child, admittedOwner),
+      observeActiveChild: (child) => this.observeActiveChild(child),
+      bindEventSink: (child) => this.admissionCustody.bindEventSink(child),
+    });
   }
 
   private resolveParentOwner(
@@ -2175,6 +2120,14 @@ class Monitor {
       registerAgentPath: (parent, threadId, path) => this.registerAgentPath(parent, threadId, path),
       registerChildThread: (parent, threadId, options) =>
         this.registerChildThread(parent, threadId, options),
+      captureInteractionTools: (parent, evidence, admittedOwner, parentTurnId) =>
+        captureAcceptedNativeChildInteractionTools(
+          this.childToolContext,
+          parent,
+          evidence,
+          admittedOwner,
+          parentTurnId,
+        ),
       admitFollowupChild: (known, admittedOwner) => this.admitFollowupChild(known, admittedOwner),
       observeActivity: (child) =>
         this.turnObservation.emitChildTaskActivity(
@@ -2388,7 +2341,7 @@ class Monitor {
           );
           this.retiredChildren.retire(state.parentThreadId, known, threadId);
           this.knownChildren.delete(threadId);
-          known.pendingTurns.forEach(releaseCompletionCustody);
+          known.pendingTurns.forEach(releasePendingNativeChildTurn);
         }
       }
     }
@@ -2408,11 +2361,18 @@ class Monitor {
       }));
     const previous = this.knownChildren.get(assignment.childThreadId);
     const previousRunId = previous?.assignment.runId;
-    const retainedPending = previous?.pendingTurns.filter((pending) => pending.modelSource) ?? [];
+    const retainedPending =
+      previous?.pendingTurns.filter((pending) => pending.modelSource || pending.childTools) ?? [];
     for (const retained of retainedPending) {
       const recovered = pendingTurns.find((pending) => pending.turnId === retained.turnId);
       if (recovered) {
         recovered.modelSource = retained.modelSource;
+        recovered.childTools = retained.childTools;
+        recovered.childToolsOwner = retained.childToolsOwner;
+        recovered.nativeToolOutcome = retained.nativeToolOutcome;
+        recovered.admittedOwner ??= retained.admittedOwner;
+        retained.childTools = undefined;
+        retained.childToolsOwner = undefined;
         recovered.completionCustody = retained.completionCustody;
         retained.completionCustody = undefined;
       } else {
@@ -2421,7 +2381,7 @@ class Monitor {
     }
     for (const pending of previous?.pendingTurns ?? []) {
       if (!pendingTurns.includes(pending)) {
-        releaseCompletionCustody(pending);
+        releasePendingNativeChildTurn(pending);
       }
     }
     this.knownChildren.set(assignment.childThreadId, {

@@ -11,6 +11,7 @@ import {
   readRawResponseToolCallId,
   updateActiveTurnItemIds,
 } from "./attempt-notifications.js";
+import { nativeToolResultContentSource } from "./event-projector-items.js";
 import type { CodexPreparedServerNotification } from "./protocol.js";
 import type { CodexAttemptLifecycleController } from "./run-attempt-lifecycle-controller.js";
 import type { StartedCodexAttemptResources } from "./run-attempt-start.js";
@@ -246,9 +247,11 @@ export function createCodexAttemptNotificationController(
       if (notification.method === "item/started" && nativeItem?.type === "commandExecution") {
         pendingNativeCommandItems.add(nativeItem.id);
       }
-      if (nativeItem?.type === "webSearch") {
+      if (notification.method === "item/completed" && nativeToolResultContentSource(nativeItem)) {
         // Native result provenance must survive an abandoned transcript projection.
-        projector.settlement.turnTainted ||= notification.method === "item/completed";
+        projector.settlement.turnTainted = true;
+      }
+      if (nativeItem?.type === "webSearch") {
         projector.recordNativeToolOutcome(nativeItem);
       }
     }

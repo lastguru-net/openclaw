@@ -306,9 +306,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
         runAbortController.signal.throwIfAborted();
         params.hostCapabilities.assertActive();
         connection.assertCurrent();
-        if (submissionStore) {
-          submissionStore.assertCurrent();
-        }
+        submissionStore?.assertCurrent();
         thread.liveThreadOwnership?.assertCurrent();
       };
       const retainModelSource = params.hostCapabilities.retainSourceAuthority;
@@ -328,6 +326,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
           requesterSessionKey: params.sessionKey,
           requesterStorePath: parent?.entryCurrent?.source.path ?? storePath,
           requesterTurnRunId: params.runId,
+          createChildTools: attemptTools.nativeChildTools.createChildTools,
           requestCustody,
           nativeProcessAuthority,
           completionScope: params.agentHarnessCompletionScope,
