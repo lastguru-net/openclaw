@@ -2,5 +2,6 @@
 # lifetime, queued/replay/cancel, computer-frame and real Gateway/native proof.
 # Existing owning fixtures and serial focused suites are reused. See feature docs.
 # Rebase adds a real MCP OAuth taint-boundary regression and migrates lifecycle
-# controls and live setup; net growth is 2514 lines less the 400-line allowance.
-2114
+# controls and live setup, with terminal-history and explicit denial assertions;
+# net growth is 2536 lines less the 400-line allowance.
+2136

@@ -27,6 +27,28 @@ type NativeSubagentProbeParams = {
 
 type GatewaySession = Pick<NativeSubagentProbeParams, "client" | "sessionKey">;
 
+export function collectCodexSpawnedChildThreadIds(items: Record<string, unknown>[]): Set<string> {
+  return new Set(
+    items.flatMap((item) => {
+      if (
+        item.type === "subAgentActivity" &&
+        item.kind === "started" &&
+        typeof item.agentThreadId === "string"
+      ) {
+        return [item.agentThreadId];
+      }
+      if (
+        item.type === "collabAgentToolCall" &&
+        item.tool === "spawnAgent" &&
+        Array.isArray(item.receiverThreadIds)
+      ) {
+        return item.receiverThreadIds.filter((id): id is string => typeof id === "string");
+      }
+      return [];
+    }),
+  );
+}
+
 type NativeSubagentProbeHarness = {
   requestTimeoutMs: number;
   observedCodexThreadIds: ReadonlyMap<string, string>;
@@ -267,7 +289,7 @@ export async function verifyCodexNativeSubagentBridgeProbe(
       async () => {
         const parent = await readNativeThread(parentThreadId);
         parentItems = threadTurns(parent).flatMap(turnItems);
-        childIds = spawnedChildIds(parentItems);
+        childIds = collectCodexSpawnedChildThreadIds(parentItems);
         return childIds.size;
       },
       { timeout: CODEX_HARNESS_REQUEST_TIMEOUT_MS, interval: 1_000 },
@@ -330,7 +352,9 @@ export async function verifyCodexNativeSubagentBridgeProbe(
     parentReplies.push(`${followupParentToken} ${followupToken}`);
     await assertParentReplies();
     const parent = await readNativeThread(parentThreadId);
-    expect([...spawnedChildIds(threadTurns(parent).flatMap(turnItems))]).toEqual([childThreadId]);
+    expect([...collectCodexSpawnedChildThreadIds(threadTurns(parent).flatMap(turnItems))]).toEqual([
+      childThreadId,
+    ]);
     logCodexLiveStep("native-subagent-followup:complete", {
       childThreadId,
       assignmentCount: assignments.length,
@@ -405,28 +429,6 @@ export async function verifyCodexNativeSubagentBridgeProbe(
       throw new Error("Native read omitted the requested thread.");
     }
     return thread;
-  }
-
-  function spawnedChildIds(items: Record<string, unknown>[]): Set<string> {
-    return new Set(
-      items.flatMap((item) => {
-        if (
-          item.type === "subAgentActivity" &&
-          item.kind === "started" &&
-          typeof item.agentThreadId === "string"
-        ) {
-          return [item.agentThreadId];
-        }
-        if (
-          item.type === "collabAgentToolCall" &&
-          item.tool === "spawnAgent" &&
-          Array.isArray(item.receiverThreadIds)
-        ) {
-          return item.receiverThreadIds.filter((id): id is string => typeof id === "string");
-        }
-        return [];
-      }),
-    );
   }
 
   function threadTurns(thread: Record<string, unknown>): Record<string, unknown>[] {

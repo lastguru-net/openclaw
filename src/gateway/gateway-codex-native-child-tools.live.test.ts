@@ -6,7 +6,10 @@ import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { bundledPluginFileAt } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it } from "vitest";
 import type { EventFrame } from "../../packages/gateway-protocol/src/index.js";
-import { withCodexNativeThreadReader } from "../../test/helpers/gateway-codex-harness-native-subagent.js";
+import {
+  collectCodexSpawnedChildThreadIds,
+  withCodexNativeThreadReader,
+} from "../../test/helpers/gateway-codex-harness-native-subagent.js";
 import {
   createCodexHarnessLiveInstance,
   stageCodexHarnessLiveAuth,
@@ -313,16 +316,23 @@ describe.skipIf(!enabled)("native Codex child host tools, real Gateway/provider"
           requestTimeoutMs: timeout,
         },
         async (readNativeThread) => {
-          const parent = asOptionalRecord(
-            asOptionalRecord(await readNativeThread(parentThreadId))?.thread,
-          )!;
-          const spawn = threadItems(parent).find(
-            (item) => item.type === "collabAgentToolCall" && item.tool === "spawnAgent",
-          );
-          expect(threadItems(parent).some((item) => item.type === "commandExecution")).toBe(false);
-          expect(spawn).toBeDefined();
-          expect(spawn?.receiverThreadIds).toHaveLength(1);
-          const childId = String((spawn!.receiverThreadIds as string[])[0]);
+          let parentItems: Record<string, unknown>[] = [];
+          let childIds: string[] = [];
+          await expect
+            .poll(
+              async () => {
+                const parent = asOptionalRecord(
+                  asOptionalRecord(await readNativeThread(parentThreadId))?.thread,
+                )!;
+                parentItems = threadItems(parent);
+                childIds = [...collectCodexSpawnedChildThreadIds(parentItems)];
+                return childIds;
+              },
+              { timeout, interval: 1000 },
+            )
+            .toHaveLength(1);
+          expect(parentItems.some((item) => item.type === "commandExecution")).toBe(false);
+          const childId = childIds[0]!;
           let child: Record<string, unknown> = {};
           const expected = `CHILD-OK:${fresh.memory}:${fresh.mcp}:DENIED`;
           await expect
@@ -331,13 +341,15 @@ describe.skipIf(!enabled)("native Codex child host tools, real Gateway/provider"
                 child = asOptionalRecord(
                   asOptionalRecord(await readNativeThread(childId))?.thread,
                 )!;
-                return threadItems(child).some(
-                  (item) => item.type === "agentMessage" && item.text === expected,
-                );
+                return records(child.turns)
+                  .filter((turn) => turn.status === "completed")
+                  .flatMap((turn) => records(turn.items))
+                  .filter((item) => item.type === "agentMessage")
+                  .map((item) => item.text);
               },
               { timeout, interval: 1000 },
             )
-            .toBe(true);
+            .toContain(expected);
           expect(child.parentThreadId).toBe(parentThreadId);
           const items = threadItems(child);
           expect(items.some((item) => item.type === "commandExecution")).toBe(false);
@@ -366,7 +378,17 @@ describe.skipIf(!enabled)("native Codex child host tools, real Gateway/provider"
           }
           for (const name of ["fixture_forbidden_read", "fixture_unlisted_read"]) {
             expect(items).toContainEqual(
-              expect.objectContaining({ type: "dynamicToolCall", tool: name, success: false }),
+              expect.objectContaining({
+                type: "dynamicToolCall",
+                tool: name,
+                success: false,
+                contentItems: expect.arrayContaining([
+                  expect.objectContaining({
+                    type: "inputText",
+                    text: expect.stringContaining(`OpenClaw native-child tool ${name} is denied.`),
+                  }),
+                ]),
+              }),
             );
             await expect(fs.access(path.join(root, `effect-child-${name}.json`))).rejects.toThrow();
             await expect(fs.access(path.join(root, `gate-child-${name}.json`))).rejects.toThrow();
