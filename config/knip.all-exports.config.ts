@@ -100,6 +100,8 @@ const ROOT_TEST_ENTRY_GLOBS = [
   "test/helpers/openclaw-test-instance.cli.test-support.mjs!",
   // The public QA Gateway child launches this transport proxy by path.
   "test/fixtures/qa-gateway-rpc-proxy.mjs!",
+  // The native-child live test copies this manifest-loaded plugin into its isolated Gateway.
+  "test/fixtures/native-child-host-tools/plugin.cjs!",
   // Prior-release fixture generation invokes this CLI from the selected release checkout.
   "test/fixtures/state-corpus/generate.mjs!",
   // Gateway upgrade tests copy these installed plugins with their manifest-declared entries.
