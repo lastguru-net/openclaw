@@ -86,6 +86,7 @@ it.each(["preserved", "replaced", "failed", "compacted"] as const)(
         ...childBase,
         computerContextEpoch: epoch,
         observeToolOutcome: vi.fn(),
+        isTurnTainted: () => false,
         createToolSurfaceAsync: () => childBase.createToolSurfaceAsync!({}),
       };
       const release = vi.fn();

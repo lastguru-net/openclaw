@@ -183,8 +183,6 @@ export function observeNativeChildToolContext(
     // Sticky per native turn, including results observed before executable admission.
     holder.nativeToolOutcome = {
       toolName: itemName(item) ?? item.type,
-      argsHash: "",
-      resultHash: "",
       resultContentSource: source,
     };
     holder.childTools?.observeToolOutcome(holder.nativeToolOutcome);

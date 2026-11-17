@@ -281,6 +281,7 @@ export function prepareHarnessDelegatedToolHosts(params: {
           version: childCapabilities.version,
           assertActive: childCapabilities.assertActive,
           computerContextEpoch,
+          isTurnTainted: childTaint.isTainted,
           observeToolOutcome: (observation) => {
             childCapabilities.assertActive();
             childTaint.observe(observation);

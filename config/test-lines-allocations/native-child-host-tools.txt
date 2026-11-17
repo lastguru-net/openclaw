@@ -1,4 +1,6 @@
 # Native-child host delegation requires distinct source, memory/auth, ambient
 # lifetime, queued/replay/cancel, computer-frame and real Gateway/native proof.
 # Existing owning fixtures and serial focused suites are reused. See feature docs.
-2013
+# Rebase adds a real MCP OAuth taint-boundary regression and migrates lifecycle
+# controls; exact net growth is 2512 lines, less the ordinary 400-line allowance.
+2112

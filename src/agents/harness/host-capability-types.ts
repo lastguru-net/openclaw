@@ -259,6 +259,8 @@ export type AgentHarnessDelegatedToolHostCapabilities = Omit<
   Readonly<{
     /** Native outcomes feed this child's sticky provenance state, not its parent's. */
     observeToolOutcome: ToolOutcomeObserver;
+    /** Reads the same child-owned provenance state used by its host tools. */
+    isTurnTainted: () => boolean;
     /** Shared with the native result/context owner so only visible frames authorize coordinates. */
     computerContextEpoch: ComputerContextEpoch;
     createToolSurfaceAsync: (

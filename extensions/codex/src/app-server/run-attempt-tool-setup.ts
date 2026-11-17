@@ -404,7 +404,6 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
       cfg: params.config,
       manifestRegistry: bundleManifestRegistry,
       metadata: params.preparedModelRuntime?.metadataSnapshot,
-      isTurnTainted: params.isTurnTainted,
       toolsAllow: params.toolsAllow,
       toolOverrides: codexMcpToolOverrides,
       autoApproveCodexAppServerApprovals: shouldAutoApproveCodexAppServerApprovals(

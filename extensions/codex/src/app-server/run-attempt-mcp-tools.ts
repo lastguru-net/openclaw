@@ -14,8 +14,9 @@ type ScopedMcpOptions = Parameters<typeof materializeRequesterScopedMcpToolsForH
 type McpOwner = {
   runId: string;
   hostCapabilities: NonNullable<EmbeddedRunAttemptParams["hostCapabilities"]>;
+  isTurnTainted?: () => boolean;
 };
-type OwnedMcpOptions<T> = Omit<T, "requestInteractiveCodexApproval"> & {
+type OwnedMcpOptions<T> = Omit<T, "requestInteractiveCodexApproval" | "isTurnTainted"> & {
   policyContext: NonNullable<ScopedMcpOptions["policyContext"]>;
   reservedToolNames: NonNullable<ScopedMcpOptions["reservedToolNames"]>;
 };
@@ -59,6 +60,7 @@ export function createCodexOwnedMcpMaterializer(options: {
       configured = options.configured
         ? await materializeStaticMcpToolsForHarnessRun({
             ...options.configured,
+            isTurnTainted: owner.isTurnTainted,
             policyContext: { ...options.configured.policyContext, runId: owner.runId },
             ...(options.interactiveConfiguredApproval
               ? {
@@ -79,6 +81,7 @@ export function createCodexOwnedMcpMaterializer(options: {
       const scoped = options.requesterScoped
         ? await materializeRequesterScopedMcpToolsForHarnessRun({
             ...options.requesterScoped,
+            isTurnTainted: owner.isTurnTainted,
             policyContext: { ...options.requesterScoped.policyContext, runId: owner.runId },
             // Requester servers cannot consume stored grants; Allow Always would re-prompt.
             requestInteractiveCodexApproval: (approval) =>

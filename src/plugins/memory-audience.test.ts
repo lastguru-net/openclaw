@@ -671,7 +671,7 @@ it("rejects retaining an unbranded or released audience", async () => {
   expect(fakeSessionOwner.activeLeases).toBe(0);
 });
 
-it("retains delegated lineage owners but still rejects their changed generations", async () => {
+it("retains delegated lineage across compaction but still rejects a reset", async () => {
   const { rootGrant, grant } = await delegatedChild();
   const releaseChild = retainMemoryAudience(grant.audience);
   grant.release();
@@ -679,7 +679,11 @@ it("retains delegated lineage owners but still rejects their changed generations
   expect(() => assertCurrent(grant.audience)).not.toThrow();
   expect(() => assertSession(grant.audience, CHILD_KEY)).not.toThrow();
   const entry = fakeSessionOwner.rows.get(ROOT_KEY)!;
-  fakeSessionOwner.rows.set(ROOT_KEY, { ...entry, sessionId: randomUUID() });
+  const compacted = { ...entry, sessionId: randomUUID() };
+  fakeSessionOwner.rows.set(ROOT_KEY, compacted);
+  expect(() => assertCurrent(grant.audience)).not.toThrow();
+  expect(fakeSessionOwner.activeLeases).toBe(2);
+  fakeSessionOwner.rows.set(ROOT_KEY, { ...compacted, lifecycleRevision: randomUUID() });
   expect(() => assertCurrent(grant.audience)).toThrow("no longer current");
   releaseChild();
   expect(fakeSessionOwner.activeLeases).toBe(0);
@@ -735,14 +739,14 @@ it("keeps the original branded audience live through a real delegated host's cle
 it("keeps retired fixture lease releases out of the current generation's count", async () => {
   const root = rootEntry();
   fakeSessionOwner.rows.set(ROOT_KEY, root);
-  const previous = await fakeSessionGenerationModule.prepareSessionGenerationFacts({
+  const previous = await fakeSessionGenerationModule.prepareLeaseFacts({
     sessionKey: ROOT_KEY,
     sessionId: root.sessionId,
     lifecycleRevision: root.lifecycleRevision ?? null,
   });
   fakeSessionOwner.reset();
   fakeSessionOwner.rows.set(ROOT_KEY, root);
-  const current = await fakeSessionGenerationModule.prepareSessionGenerationFacts({
+  const current = await fakeSessionGenerationModule.prepareLeaseFacts({
     sessionKey: ROOT_KEY,
     sessionId: root.sessionId,
     lifecycleRevision: root.lifecycleRevision ?? null,

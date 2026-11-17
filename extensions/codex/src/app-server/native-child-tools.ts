@@ -77,6 +77,7 @@ export function prepareCodexNativeChildToolFactory(options: {
   materializeMcpTools: (request: {
     hostCapabilities: Host;
     runId: string;
+    isTurnTainted: () => boolean;
   }) => Promise<MaterializedTools>;
 }) {
   // Only immutable declarations and independent construction recipes cross the
@@ -145,6 +146,7 @@ export function prepareCodexNativeChildToolFactory(options: {
       mcp = await materializeMcpTools({
         hostCapabilities: host,
         runId: request.runId,
+        isTurnTainted: host.isTurnTainted,
       });
       assertCurrent();
       const fresh = normalizeTools([...tools, ...host.bindToolSurface(mcp.tools, { cwd })]).filter(

@@ -374,6 +374,7 @@ it("reads taint and hostname restrictions at issuance and then uses child-owned 
   const options = expectDefined(construction.mock.calls.at(-1)?.[0], "child options");
   expect(options.webFetchHostnameAllowlistRef?.value).toEqual(["allowed.example"]);
   expect(options.isTurnTainted?.()).toBe(true);
+  expect(child.capabilities.isTurnTainted()).toBe(true);
   expect(readTaint).toHaveBeenCalledOnce();
 });
 
@@ -394,15 +395,15 @@ it("taints a previously clean child after its own native or MCP network outcome"
   await child.capabilities.createToolSurfaceAsync();
   const options = expectDefined(construction.mock.calls.at(-1)?.[0], "child options");
   expect(options.isTurnTainted?.()).toBe(false);
+  expect(child.capabilities.isTurnTainted()).toBe(false);
   child.capabilities.observeToolOutcome({
     toolName: "native-web-search",
-    argsHash: "args",
-    resultHash: "network",
     resultContentSource: "network",
   });
   expect(options.isTurnTainted?.()).toBe(true);
-  options.onToolOutcome?.({ toolName: "read", argsHash: "args2", resultHash: "local" });
+  options.onToolOutcome?.({ toolName: "read" });
   expect(options.isTurnTainted?.()).toBe(true);
+  expect(child.capabilities.isTurnTainted()).toBe(true);
 });
 
 it("releases source custody when memory audience retention refuses an unbranded capability", async () => {

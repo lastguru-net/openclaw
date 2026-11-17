@@ -52,6 +52,7 @@ function fixture(
     ...childBase,
     computerContextEpoch: { value: 0 },
     observeToolOutcome: vi.fn(),
+    isTurnTainted: () => false,
     createToolSurfaceAsync: () => childBase.createToolSurfaceAsync!({}),
   };
   setCodexTestToolFactory({ hostCapabilities: childBase }, () => [
@@ -163,7 +164,7 @@ describe("native child host tool executor", () => {
     const child = f.start();
     expect(
       await child.handleToolCall(
-        createDynamicToolCall("read_note", { note: 42 }),
+        createDynamicToolCall("read_note", { note: {} }),
         new AbortController().signal,
       ),
     ).toMatchObject({ success: false });
@@ -201,6 +202,7 @@ describe("native child host tool executor", () => {
     expect(f.materializeMcpTools).toHaveBeenCalledWith({
       hostCapabilities: f.childHost,
       runId: "child-run",
+      isTurnTainted: f.childHost.isTurnTainted,
     });
     expect(f.staleEffect).not.toHaveBeenCalled();
     expect(f.effects).toHaveBeenCalledTimes(2);
