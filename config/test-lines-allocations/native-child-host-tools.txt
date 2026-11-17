@@ -3,5 +3,6 @@
 # Existing owning fixtures and serial focused suites are reused. See feature docs.
 # Rebase adds a real MCP OAuth taint-boundary regression and migrates lifecycle
 # controls and live setup, with terminal-history and explicit denial assertions;
-# net growth is 2536 lines less the 400-line allowance.
-2136
+# real MCP projection also covers stale ambient question authority and revocation.
+# Net growth is 2617 lines less the 400-line allowance.
+2217

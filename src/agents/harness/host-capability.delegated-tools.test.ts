@@ -1,3 +1,4 @@
+import { AsyncResource } from "node:async_hooks";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -17,6 +18,8 @@ import {
   createOperationalRunInstanceRef,
   prepareAgentRunAdmission,
 } from "../admitted-run-context.js";
+import { fixtureCatalog, fixtureRuntime } from "../agent-bundle-mcp-fixture.test-support.js";
+import { materializeBundleMcpToolsForRun } from "../agent-bundle-mcp-materialize.js";
 import * as agentTools from "../agent-tools.async.js";
 import {
   continueAuthProfileAuthorization,
@@ -30,6 +33,7 @@ import {
   type CanonicalAuthProfileCredentialObservation,
 } from "../auth-profiles/credential-observation.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
+import { captureMcpFormRequester } from "../mcp-form-tool-approval.js";
 import {
   createAdmittedGatewayToolCallerIdentity,
   getGatewayToolCallerIdentity,
@@ -38,6 +42,10 @@ import {
 import { createAgentHarnessHostCapabilities } from "./host-capability.js";
 import { testTool } from "./host-capability.shard.test-support.js";
 import * as delegatedOptions from "./host-delegated-tool-options.js";
+import {
+  createAgentQuestionAnswerAuthority,
+  withAgentQuestionAnswerAuthority,
+} from "./host-private-capabilities.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -247,6 +255,79 @@ it("retains production transcript source custody across foreground close and use
   expect(parent.sourceHolds()).toBe(0);
   await expect(read.execute("after-close", {})).rejects.toThrow("no longer active");
 });
+
+it.each(["close", "source"] as const)(
+  "isolates delegated MCP from foreground question authority and fences %s",
+  async (terminal) => {
+    const parent = await parentFixture();
+    const { tool } = testTool();
+    vi.spyOn(agentTools, "createOpenClawCodingToolsInternalAsync").mockResolvedValue([tool]);
+    parent.host.capabilities.prepareDelegatedToolHosts!();
+    await parent.host.capabilities.createToolSurfaceAsync!({ config: parent.config });
+    const child = await parent.host.capabilities.createDelegatedToolHost!({ runId: "child" });
+    cleanups.push(child.close);
+
+    const sessionKey = "agent:main:original";
+    let questionActive = true;
+    const assertQuestionActive = vi.fn(() => {
+      if (!questionActive) {
+        throw new Error("embedded tool authority is no longer active");
+      }
+    });
+    const questionAuthority = createAgentQuestionAnswerAuthority({
+      sessionKey,
+      requesterProfileId: "foreground-question-profile",
+      fingerprint: "foreground-question-policy",
+      project: () => "foreground-question-policy",
+      assertActive: assertQuestionActive,
+    });
+    const catalog = fixtureCatalog("proof", [{ toolName: "read" }]);
+    const callTool = vi.fn(async () => {
+      // Retained operator identity is not foreground question/input authority.
+      expect(captureMcpFormRequester(sessionKey)).toBeUndefined();
+      const caller = getGatewayToolCallerIdentity();
+      expect(caller?.operationalRunInstance?.runId).toBe("child");
+      expect(caller?.operatorAuthority?.profileId).toBe("original-person");
+      return { content: [{ type: "text" as const, text: "synthetic MCP result" }] };
+    });
+    const runtime = fixtureRuntime(() => catalog, {
+      sessionKey,
+      requesterScope: { requesterSenderId: "original-sender" },
+      isRequesterScopedServer: () => true,
+      callTool,
+      acquireLease: () => () => {},
+      joinCleanup: async () => {},
+    });
+    const execute = await withAgentQuestionAnswerAuthority(questionAuthority, async () => {
+      expect(captureMcpFormRequester(sessionKey)).toEqual({
+        kind: "gateway-profile",
+        profileId: "foreground-question-profile",
+      });
+      const materialized = await materializeBundleMcpToolsForRun({ runtime, agentId: "main" });
+      cleanups.push(materialized.dispose);
+      const projected = expectDefined(
+        child.capabilities.bindToolSurface(materialized.tools)[0],
+        "delegated MCP tool",
+      );
+      // Native callbacks retain this exact foreground ALS context after it ends.
+      return AsyncResource.bind((id: string) => projected.execute(id, {}));
+    });
+
+    parent.endForeground();
+    questionActive = false;
+    assertQuestionActive.mockClear();
+    await execute("after-parent-completion");
+    expect(assertQuestionActive).not.toHaveBeenCalled();
+    expect(callTool).toHaveBeenCalledOnce();
+    if (terminal === "close") {
+      await child.close();
+    } else {
+      parent.revoke();
+    }
+    await expect(execute("after-child-revocation")).rejects.toThrow();
+    expect(callTool).toHaveBeenCalledOnce();
+  },
+);
 
 it("uses host-pinned workspace policy and child-owned cleanup without retaining parent callbacks", async () => {
   const parent = await parentFixture({ requireWorkspaceOnly: true });

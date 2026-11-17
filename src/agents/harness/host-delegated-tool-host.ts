@@ -21,6 +21,10 @@ import type {
   AgentHarnessHostCapabilities,
 } from "./host-capability-types.js";
 import { captureDelegatedToolOptions } from "./host-delegated-tool-options.js";
+import {
+  resolveAgentQuestionAnswerAuthority,
+  withAgentQuestionAnswerAuthority,
+} from "./host-private-capabilities.js";
 import { cloneHostSnapshot as cloneSnapshot } from "./host-snapshot.js";
 
 export type AgentHarnessHostAttempt = Partial<EmbeddedRunAttemptInternalParams> &
@@ -252,14 +256,18 @@ export function prepareHarnessDelegatedToolHosts(params: {
         // Admission retained the original source. Transport request/client and
         // per-tool invocation lifetimes must not become the child's authority.
         const runOwned = <T>(run: () => Promise<T>): Promise<T> =>
-          runOutsideAgentPluginRuntimeRefresh(() =>
-            runOutsideOperatorToolGatewayAuthority(() =>
-              withPluginRuntimeGatewayContextResolver(
-                resolveGatewayContext,
-                () => owner.runWithCaller(run),
-                { inheritRequestScope: false },
+          withAgentQuestionAnswerAuthority(
+            resolveAgentQuestionAnswerAuthority(childCapabilities),
+            () =>
+              runOutsideAgentPluginRuntimeRefresh(() =>
+                runOutsideOperatorToolGatewayAuthority(() =>
+                  withPluginRuntimeGatewayContextResolver(
+                    resolveGatewayContext,
+                    () => owner.runWithCaller(run),
+                    { inheritRequestScope: false },
+                  ),
+                ),
               ),
-            ),
           );
         const bindOwnedTool = (tool: AnyAgentTool): AnyAgentTool =>
           wrapAgentToolExecutionContext(
