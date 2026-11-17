@@ -176,6 +176,8 @@ describe.skipIf(!enabled)("native Codex child host tools, real Gateway/provider"
                   "write",
                   "edit",
                   "apply_patch",
+                  // Exercise normal final cleanup, not detached yield/continuation.
+                  "sessions_yield",
                 ],
                 appServer: {
                   mode: "guardian",

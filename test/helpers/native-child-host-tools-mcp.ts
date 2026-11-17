@@ -42,7 +42,12 @@ export function createNativeChildProofMcpServer(root: string, nonce: string) {
       } else if (message.method === "tools/list") {
         result = {
           tools: [
-            { name: "read", description: "Read synthetic proof data only", inputSchema: schema },
+            {
+              name: "read",
+              description: "Read synthetic proof data only",
+              inputSchema: schema,
+              annotations: { readOnlyHint: true },
+            },
           ],
         };
       } else if (message.method === "tools/call" && message.params.name === "read") {
