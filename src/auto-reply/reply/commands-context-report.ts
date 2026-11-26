@@ -51,6 +51,7 @@ import {
 import { formatUsd } from "../../utils/usage-format.js";
 import type { ReplyPayload } from "../types.js";
 import type { HandleCommandsParams } from "./commands-types.js";
+import { previewContextTools } from "./context-tool-preview.js";
 import { renderContextTreemapPng } from "./context-treemap.js";
 
 const numberFormat = new Intl.NumberFormat("en-US");
@@ -331,10 +332,17 @@ export async function buildContextReply(params: HandleCommandsParams): Promise<R
         "- /context list   (short breakdown)",
         "- /context detail (per-file + per-tool + per-skill + system prompt size + compactable chat history counts)",
         "- /context map    (WinDirStat-style treemap image)",
+        "- /context tools  (preview allow/deny patterns against the last run's tool names)",
         "- /context json   (same, machine-readable)",
         "",
         "Inline shortcut = a command token inside a normal message (e.g. “hey /status”). It runs immediately (allowlisted senders only) and is stripped before the model sees the remaining text.",
       ].join("\n"),
+    };
+  }
+
+  if (sub === "tools") {
+    return {
+      text: previewContextTools(args.split(/\s+/u).slice(1), resolveRunContextReport(params)),
     };
   }
 
@@ -504,7 +512,7 @@ export async function buildContextReply(params: HandleCommandsParams): Promise<R
     return {
       text: [
         "Unknown /context mode.",
-        "Use: /context, /context list, /context detail, /context map, or /context json",
+        "Use: /context, /context list, /context detail, /context map, /context tools, or /context json",
       ].join("\n"),
     };
   }

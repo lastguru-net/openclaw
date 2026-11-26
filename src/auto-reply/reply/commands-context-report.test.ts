@@ -275,6 +275,43 @@ describe("buildContextReply", () => {
     },
   );
 
+  it("previews anchored allow/deny patterns against recorded direct and deferred names", async () => {
+    const params = makeParams(
+      "/context tools --allow READ --allow catalog__get_* --deny *_secret --allow talog__*",
+      false,
+    );
+    const report = expectDefined(params.sessionEntry?.systemPromptReport, "run tool catalog");
+    report.tools.deferred = {
+      schemaChars: 0,
+      entries: ["catalog__get_public", "catalog__get_secret", "catalog__update"].map((name) => ({
+        name,
+        source: "mcp",
+        sourceName: "catalog",
+        serverName: "catalog-server",
+        schemaChars: null,
+      })),
+    };
+    const { text } = await buildContextReply(params);
+    expect(text).toContain("does not grant execution");
+    expect(text).toContain("Selected (2):");
+    expect(text).toContain("catalog__get_public (mcp: catalog-server)");
+    expect(text).toContain("read (source not recorded)");
+    expect(text).toContain("Denied (1):");
+    expect(text).toContain("catalog__get_secret (mcp: catalog-server)");
+    expect(text).not.toContain("catalog__update");
+    expect(text).toContain("No catalog match: talog__*");
+  });
+
+  it("selects nothing without an allow pattern and never previews an estimate", async () => {
+    const preview = (command: string, estimated = false) =>
+      buildContextReply(makeParams(command, false, { estimated }));
+    expect((await preview("/context tools")).text).toContain("Selected (0): none");
+    expect((await preview("/context tools --allow")).text).toContain("Usage:");
+    expect((await preview("/context tools --allow *", true)).text).toContain(
+      "No actual run tool catalog is cached",
+    );
+  });
+
   it("describes compactable chat history counts in help output", async () => {
     const result = await buildContextReply(makeParams("/context help", false));
     expect(result.text).toContain(

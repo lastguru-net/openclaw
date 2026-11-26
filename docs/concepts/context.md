@@ -133,6 +133,24 @@ Top tools (schema size):
 … (+N more tools)
 ```
 
+### `/context tools`
+
+Preview which tool names a set of patterns selects from this session's last recorded run:
+
+```text
+/context tools --allow search_notes --allow catalog__get_* --deny catalog__get_secret
+```
+
+Repeat `--allow` or `--deny` for additional patterns. A pattern matches a whole
+tool name, ignoring case; only `*` is a wildcard. Deny overrides allow, and no
+allow patterns means nothing is selected. The preview includes direct and
+deferred tool declarations and identifies the plugin or MCP server when the
+run recorded that information. Unmatched patterns mean no such name appeared
+in that run, not that the tool can never be available.
+
+This command does not invoke tools, change configuration, or grant a native
+child access. A selected declaration is not proof that a callback can run.
+
 ### `/context map`
 
 Sends an image generated from the latest cached run report plus the session transcript. Before a normal message has produced a run report in the session, `/context map` returns an unavailable message instead of rendering an estimate. Rectangle area is proportional to tracked prompt characters:

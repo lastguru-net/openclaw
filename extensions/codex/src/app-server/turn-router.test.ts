@@ -66,6 +66,22 @@ async function bindRoute(
 }
 
 describe("CodexAppServerTurnRouter", () => {
+  it("never borrows a parent tool handler for an unowned child, even with matching call and turn IDs", async () => {
+    const harness = createHarness("parent", "initial");
+    const onRequest = vi.fn(() => toolResult);
+    const route = await bindRoute(harness, "initial", { onRequest });
+    const call = { turnId: "initial", callId: "same-call", tool: "fixture_lookup", arguments: {} };
+    harness.request("foreign", "item/tool/call", { ...call, threadId: "child" });
+    await harness.expectResponse("foreign", unhandledToolResult);
+    expect(onRequest).not.toHaveBeenCalled();
+    harness.call("owned", "item/tool/call", call);
+    await harness.expectResponse("owned", toolResult);
+    route.release();
+    harness.request("late", "item/tool/call", { ...call, threadId: "child" });
+    await harness.expectResponse("late", unhandledToolResult);
+    expect(onRequest).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["reserve", "activate"] as const)(
     "runs %s callbacks in each attempt's context on a reused transport",
     async (registration) => {
