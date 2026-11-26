@@ -66,6 +66,39 @@ async function bindRoute(
 }
 
 describe("CodexAppServerTurnRouter", () => {
+  it("keeps a separately bound child handler alive only for its own turn after parent release", async () => {
+    const harness = createHarness("parent", "parent-turn");
+    const parentHandler = vi.fn(() => toolResult);
+    const parent = await bindRoute(harness, "parent-turn", { onRequest: parentHandler });
+    const childResult = {
+      success: true,
+      contentItems: [{ type: "inputText", text: "child-only" }],
+    };
+    const childHandler = vi.fn(() => childResult);
+    const child = harness.router.reserveThread({ threadId: "child", onRequest: childHandler });
+    child.armTurn();
+    await child.bindTurn("child-turn");
+    parent.release();
+    const call = {
+      threadId: "child",
+      turnId: "child-turn",
+      callId: "lookup",
+      tool: "fixture_lookup",
+      arguments: {},
+    };
+    harness.request("child-owned", "item/tool/call", call);
+    await harness.expectResponse("child-owned", childResult);
+    harness.request("no-turn", "item/tool/call", { ...call, turnId: null });
+    await harness.expectResponse("no-turn", unhandledToolResult);
+    harness.request("next-turn", "item/tool/call", { ...call, turnId: "later" });
+    await harness.expectResponse("next-turn", unhandledToolResult);
+    child.release();
+    harness.request("released", "item/tool/call", call);
+    await harness.expectResponse("released", unhandledToolResult);
+    expect(childHandler).toHaveBeenCalledTimes(1);
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
   it("never borrows a parent tool handler for an unowned child, even with matching call and turn IDs", async () => {
     const harness = createHarness("parent", "initial");
     const onRequest = vi.fn(() => toolResult);

@@ -539,7 +539,13 @@ class ClientTurnRouter {
         return undefined;
       }
     }
-    if (route.gate === "bound" && scope.turnId && scope.turnId !== route.turnId) {
+    // A dynamic tool call belongs to a turn. A thread-only request cannot
+    // borrow a bound turn's handler; genuinely thread-scoped RPCs still can.
+    if (
+      route.gate === "bound" &&
+      (request.method === "item/tool/call" || scope.turnId) &&
+      scope.turnId !== route.turnId
+    ) {
       return undefined;
     }
     if (
